@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Claude Code local session data
+.claude/
+
+# Internal / not part of the published site
+PROJECT-STATUS.md
+tools/
+book launch overlay mobile/
+mobile design reference/
+
+# Source masters kept locally but not served by the site
+stripey-track.mp3
+authors.png

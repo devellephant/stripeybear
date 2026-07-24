@@ -1,0 +1,2273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Stripey Bear — Where are you from?</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manjari:wght@100;400;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+  <!-- three.js — required by hairLettering.js (the WebGL hero hair-title effect) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Lenis smooth scroll (graceful: page falls back to native scroll if it fails to load) -->
+  <link rel="stylesheet" href="https://unpkg.com/lenis@1/dist/lenis.css">
+  <script src="https://unpkg.com/lenis@1/dist/lenis.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* Placeholder serif for pre-order/contact headings until the user supplies
+       the final serif .otf/.woff (see PROJECT-STATUS.md). */
+    @font-face {
+      font-family: 'Tinta';
+      src: url('tinta-demo-regular.otf') format('opentype');
+      font-weight: normal;
+      font-display: swap;
+    }
+    /* Display serif supplied by the user — used for the M3 scroll verse (and
+       available to swap into the pre-order/contact headings). */
+    @font-face {
+      font-family: 'DaVinci';
+      src: url('fonts/TRJNDaVinci-Display.otf') format('opentype');
+      font-weight: normal;
+      font-display: swap;
+    }
+    :root {
+      --teal: #1c4a53;
+      --cream: #F4EDE2;
+      --orange: #F58B30;
+      --orange-deep: #d9611a;
+      --ink: #4a4038;
+      --muted: #8a7d6f;
+      --serif: 'DaVinci', 'Playfair Display', serif;
+    }
+    /* Native scroll experience: a tall page of full-height scenes over a fixed
+       PixiJS star background (which parallaxes as you scroll). */
+    html { scroll-behavior: auto; }
+    html, body { width: 100%; background: var(--teal); }
+    /* clip (not hidden) so it doesn't break position:sticky in the verse scene. On <html>
+       too — body's clip does NOT contain fixed-position descendants (the bg canvas), so
+       without it the page can still scroll horizontally when the book bleeds past the edges. */
+    html, body { overflow-x: clip; }
+    body > canvas { position: fixed; top: 0; left: 0; z-index: 0; }  /* PixiJS bg (teal + stars) */
+    /* Safari 26 "Liquid Glass" samples the background-color of the fixed element nearest each
+       viewport edge to tint its translucent bars (theme-color is ignored). Give the bg canvas
+       an explicit teal so the top/bottom bars render as teal glass that blends with the
+       watercolour, instead of falling back to white. */
+    #bgCanvas { background-color: var(--teal); }
+
+    /* Scroll sections */
+    main { position: relative; z-index: 2; }
+    .scene {
+      position: relative;
+      min-height: 100vh;
+      width: 100%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 6vw;
+    }
+    .scene--spacer { min-height: 100vh; }   /* hero lives in the fixed layers behind */
+
+    /* Book-flip: scroll-scrubbed WebP sequence (transparent frames over the fixed
+       teal/stars bg). Tall pinned section; a canvas draws the frame for the current
+       scroll position (Apple-style). */
+    .scene--bookflip { display: block; min-height: 300vh; padding: 0; }
+    .bookflip-pin { position: sticky; top: 0; height: 100vh;
+      display: flex; align-items: center; justify-content: center; }
+    #bookFlipCanvas { width: 100%; height: 100%; display: block; }
+    /* Pre-order copy that fades in on the right once the book settles middle-left */
+    .bookflip-text {
+      position: absolute; z-index: 3; right: calc(20% + 25px); top: 50%;
+      transform: translateY(-50%); width: min(32%, 440px);
+      color: #F6ECE3; opacity: 0; pointer-events: none;   /* opacity + pointer-events driven by JS */
+    }
+    .bookflip-text .panel-heading,
+    .bookflip-text .panel-desc,
+    .bookflip-text .panel-price,
+    .bookflip-text .panel-price span { color: #F6ECE3; }
+    .bookflip-text .panel-heading {
+      font-family: var(--serif); font-weight: 500; line-height: 1.12;
+      font-size: 48px; margin-bottom: 1.8rem;   /* 40px + 20%; title→body gap ×2 */
+    }
+    .bookflip-text .panel-desc {
+      font-family: "Manjari", system-ui, sans-serif; font-weight: 100; line-height: 1.5;
+      font-size: 21.6px; margin-bottom: 0.9rem; max-width: none;   /* 18px + 20% */
+    }
+    .bookflip-text .panel-price {
+      font-family: var(--serif); font-size: clamp(1.2rem, 1.5vw, 1.4rem); margin: 2rem 0 2.6rem;   /* gap to button ×2 */
+    }
+    .bookflip-text .cta { height: 52px; padding: 14px 34px 8px; font-size: 1.1rem; }
+    .scene__inner {
+      position: relative;
+      width: 100%;
+      max-width: 1180px;
+      will-change: transform, opacity;   /* reveal target (enter from bottom, exit at top) */
+    }
+
+    /* ── Organic blob (pre-order + about) ───────────────────────────── */
+    .blob { position: absolute; z-index: 0; pointer-events: none; overflow: visible;
+      filter: drop-shadow(0 22px 50px rgba(0, 0, 0, 0.22)); }
+    .blob path { fill: var(--cream); stroke: var(--orange); stroke-width: 2.5; }
+
+    /* Shared text styles inside the cream panels */
+    .panel-heading {
+      font-family: var(--serif); font-weight: 500;
+      color: var(--teal); line-height: 1.12;
+      font-size: clamp(2rem, 3.4vw, 3.2rem);
+      margin-bottom: 1.3rem;
+    }
+    .panel-desc { color: var(--ink); line-height: 1.55;
+      font-size: clamp(0.98rem, 1.15vw, 1.15rem); margin-bottom: 1.1rem; max-width: 34ch; }
+    .panel-price { font-weight: 700; color: var(--teal);
+      font-size: clamp(1.1rem, 1.35vw, 1.35rem); margin: 1.4rem 0 1.6rem; }
+    .panel-price span { color: var(--muted); font-weight: 400; }
+    .cta {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 54px; padding: 4px 40px 0; background: var(--orange); color: #fff;
+      font-family: inherit; font-weight: 700; font-size: clamp(1rem, 1.2vw, 1.15rem);
+      border: none; border-radius: 50px; text-decoration: none; cursor: pointer;
+      letter-spacing: 0.01em; box-shadow: 0 6px 20px rgba(245, 139, 48, 0.4);
+      transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+    }
+    .cta:hover { transform: scale(1.04); background: var(--orange-deep); box-shadow: 0 8px 26px rgba(245, 139, 48, 0.5); }
+
+    /* ── About scene (mirrors the pre-order "book preview": tall pinned section,
+       full-frame contact-blob, staged scroll reveal) ─────────────────── */
+    .scene--about { display: block; min-height: 200vh; padding: 0; }
+    .about-pin { position: sticky; top: 0; height: 100vh;
+      display: flex; align-items: center; justify-content: center; }
+    .scene--about .scene__inner {
+      max-width: 1440px;
+      width: min(100vw, 140vh);
+      aspect-ratio: 1440 / 1024;
+      container-type: size;
+      margin: 0 auto;
+    }
+    .about__layer { position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: contain; object-position: center; pointer-events: none; }
+    .about__blobimg { z-index: 0; transform-origin: 50% 50%; will-change: transform; }
+    .about__mbg { display: none; }   /* mobile-only portrait blob background (see @media below) */
+    .scene--about .panel-heading, .about__body { will-change: transform, opacity; }
+    .about__text { position: absolute; z-index: 2;
+      left: 30.5%; top: 50%; transform: translateY(calc(-50% + 0.977cqh)); width: 23.7cqw; color: var(--teal); }   /* 341px wide, nudged ~10px down @ 1440 */
+    .scene--about .panel-heading { font-size: 2.778cqw; line-height: 1.12; margin-bottom: 1.1cqw; }   /* 40px @ 1440 */
+    .scene--about .panel-desc { font-size: 1.25cqw; font-weight: 100; line-height: 1.5; margin-bottom: 0.9cqw; max-width: none; }   /* Manjari Thin, 18px @ 1440 */
+    .scene--about .about__body .panel-desc:last-of-type { margin-bottom: 1.667cqw; }   /* 24px gap to the button @ 1440 */
+    .scene--about .cta {
+      height: auto;
+      padding: 0.972cqw 2.778cqw 0.556cqw;   /* 14/40/8/40px @ 1440 */
+      border-radius: 999px;
+      background: var(--orange);
+      color: #F6ECE3;
+      font-family: "Manjari", system-ui, sans-serif;
+      font-size: 1.25cqw;   /* 18px @ 1440 */
+      font-weight: 700;
+      line-height: normal;
+      box-shadow: none;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    /* Desktop footer is the fixed dark bar (.site-footer) below; the old full-height cream
+       footer SECTION is hidden here (mobile re-enables it as a compact section in the
+       max-width block). .footer__copy/.footer__pub kept but unused on desktop now. */
+    .scene--footer { display: none; color: var(--cream); text-align: center; align-items: flex-end; padding-bottom: 9vh; }
+    .footer__copy {
+      font-family: var(--serif); font-weight: 500; line-height: 1.1;
+      font-size: clamp(1.05rem, 1.45vw, 1.4rem); margin-bottom: 2.2em;
+    }
+    .footer__pub {
+      font-family: var(--serif); font-weight: 500; line-height: 1.55;
+      font-size: clamp(1.05rem, 1.45vw, 1.4rem);
+    }
+    .footer__m { display: none; }   /* mobile-only compact footer bar (see @media) */
+
+    /* Fixed dark footer bar (desktop). Hidden below the fold; slides up on body.at-footer
+       while the corner buttons + credits slide down — they "switch places". */
+    .site-footer {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 13;
+      display: flex; align-items: center; justify-content: space-between; gap: 2em;
+      padding: 1.15em 2.2em;
+      background: #2b2118;
+      font-family: "Manjari", system-ui, sans-serif; font-size: 16px;
+      color: rgba(246, 236, 227, 0.55);
+      transform: translateY(100%);
+      transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .site-footer .hl { color: rgba(246, 236, 227, 0.9); }
+    body.at-footer .site-footer { transform: translateY(0); }
+
+    /* The swap. Base = fade (mobile keeps this — only #soundToggle is affected there);
+       desktop overrides to slide DOWN out of frame as the footer bar rises. */
+    .corner-actions, .credits {
+      transition: transform 0.55s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
+    }
+    body.at-footer .corner-actions,
+    body.at-footer .credits { opacity: 0; pointer-events: none; }
+    @media (min-width: 769px) {
+      body.at-footer .corner-actions,
+      body.at-footer .credits { opacity: 1; transform: translateY(230%); }
+    }
+
+    @media (max-width: 900px) {
+      .scene { padding: 0 5vw; }
+      .panel-desc { max-width: none; }
+      .about__row { flex-direction: column; gap: 1.2rem; text-align: center; }
+      .about__blob { inset: -10% -7%; }
+      .about__text { width: 100%; max-width: 420px; order: 1; }
+      .about__photo { width: min(70vw, 320px); order: 2; align-self: center; }
+    }
+
+    /* ── Text transition scene (wavy verse — scroll-scrubbed sweep) ─────
+       Tall section; a sticky, viewport-tall stage stays pinned while you
+       scroll through it, and the two verse lines sweep right→left (one after
+       the other), driven by the section's scroll progress. */
+    .scene--text { display: block; min-height: 300vh; padding: 0; }   /* taller = slower sweep (scrub spread over ~200vh) */
+    .verse-pin {
+      position: sticky; top: 0; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;   /* clip the words as they enter/exit the frame */
+    }
+    #verseSvg { width: 100%; height: 100%; display: block; overflow: visible; }
+    #verseSvg text {
+      font-family: var(--serif);
+      fill: var(--cream);
+      font-size: clamp(84px, 15vw, 198px);   /* JS sets the exact size; this is the fallback */
+      letter-spacing: 0.01em;
+    }
+    #verseSvg .verse-path { fill: none; stroke: none; }
+
+    .hero-type { transition: opacity 0.12s linear; }
+
+    /* Interactive hair-lettering hero (replaces the headline PNG) */
+    .hero-type {
+      position: fixed;
+      top: 6vh; left: 0;
+      width: 100%; height: 60vh;
+      z-index: 5;
+    }
+    .hero-type canvas { display: block; width: 100%; height: 100%; }
+    body { font-family: "Manjari", system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+    /* ── Retailer logo marquee (top) ─────────────────────────────── */
+    .logobar {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      padding: 1.6em 0;
+      overflow: hidden;
+      z-index: 10;
+      -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+              mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+    }
+    .logo-track {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      width: max-content;
+      animation: marquee 40s linear infinite;
+      opacity: 0.92;
+    }
+    .logobar:hover .logo-track { animation-play-state: paused; }
+    .logo-track img {
+      height: clamp(22px, 2.4vw, 34px);
+      width: auto;
+      display: block;
+      margin-right: 80px; /* spacing at the loop seam; kept on each copy so -50% stays seamless */
+    }
+    @keyframes marquee {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+
+
+    /* ── Footer credits ──────────────────────────────────────────── */
+    .credits {
+      position: fixed;
+      bottom: 1.6em;
+      left: 0;
+      width: 100%;
+      padding: 0 2.2em;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .credits span {
+      color: #F4DFD0;
+      font-size: 18px;
+      letter-spacing: 0.01em;
+    }
+
+    /* ── Persistent corner actions (bottom-right) ────────────────── */
+    .corner-actions {
+      position: fixed;
+      bottom: 1.6rem; right: 1.6rem;
+      z-index: 12;
+      display: flex; gap: 0.8rem;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 9px;
+      height: 50px; padding: 0 24px 3px;   /* slight bottom pad centres Manjari */
+      background: #F4EDE2; color: #1c4a53;
+      border: none; border-radius: 50px;
+      font-family: inherit; font-weight: 700; font-size: 1rem;
+      letter-spacing: 0.01em; cursor: pointer; touch-action: manipulation;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    #launchPartyBtn {
+      display: inline-flex;
+      height: 52px;
+      padding: 14px 24px 8px 24px;
+      justify-content: center;
+      align-items: center;
+      font-size: 20px;
+      background: var(--orange);
+      color: var(--cream);
+    }
+    #soundToggle {
+      display: flex;
+      width: 173px;
+      height: 52px;
+      padding: 7px 24px 8px 24px;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      /* dark fill (padding-box) under a left→right gradient border (border-box) */
+      background:
+        linear-gradient(#123847, #123847) padding-box,
+        linear-gradient(90deg, #F4DFD0 0%, #133946 100%) border-box;
+      color: var(--cream);   /* not in the spec — makes text + icon legible on the dark fill */
+      font-size: 20px;
+      white-space: nowrap;
+    }
+    /* Manjari sits high in its line box, so the icon reads as low vs the text —
+       nudge the label down to the optical centre so text + icon align. */
+    #soundToggle #soundLabel { display: inline-block; transform: translateY(2px); }
+    .pill:hover { transform: scale(1.05); box-shadow: 0 6px 22px rgba(0,0,0,0.24); }
+    .pill svg { width: 20px; height: 20px; display: block; }
+    .pill .icon-off { display: none; }
+    .pill.muted .icon-on  { display: none; }
+    .pill.muted .icon-off { display: block; }
+    .lp-txt-m { display: none; }   /* mobile-only launch label (shown in @media below) */
+    /* Both corner pills are cream per the Figma design. */
+
+    /* ── Launch Party overlay (RSVP form on a notepad → Formspree) ──── */
+    .lp-overlay {
+      position: fixed; inset: 0; z-index: 30;
+      background: rgba(14, 42, 49, 0.55);
+      -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+      display: flex; align-items: flex-end; justify-content: flex-end;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+    .lp-overlay.open { opacity: 1; pointer-events: auto; }
+    /* The content is a 1440×1024 artboard (matches the exported launch-*.png
+       layers) pinned to the right, so the notepad sits on the right and the
+       blurred teal shows through on the left — as in the design. Layers are
+       full-frame so they stay pixel-aligned; text + form are overlaid in % with
+       cqw type so everything scales with the artboard. */
+    .lp-art {
+      position: relative;
+      aspect-ratio: 1440 / 1024;
+      width: min(100vw, 140.625vh);   /* 100vh × 1440/1024 → full height on landscape */
+      container-type: size;
+    }
+    .lp-layer {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: contain; object-position: center;
+      pointer-events: none; user-select: none;
+    }
+    /* The top sheet (paper-3) holds all the content, so it moves as one group. */
+    .lp-sheet3 { position: absolute; inset: 0; }
+
+    /* Entrance: after the backdrop blurs in, the three papers glide in from the
+       right with a slight rotation that settles to 0, staggered back→front so the
+       content-bearing top sheet lands last. They finish in the resting design pose.
+       Uses `both` fill so each paper stays off-screen during its delay. */
+    @keyframes lpSlideIn {
+      from { transform: translateX(var(--lp-tx)) rotate(var(--lp-rot)); opacity: 0; }
+      to   { transform: translateX(0) rotate(0deg); opacity: 1; }
+    }
+    .lp-p1     { --lp-tx: 72%; --lp-rot: 8deg; }
+    .lp-p2     { --lp-tx: 66%; --lp-rot: 6deg; }
+    .lp-sheet3 { --lp-tx: 60%; --lp-rot: 4deg; }
+    .lp-overlay.open .lp-p1     { animation: lpSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.28s both; }
+    .lp-overlay.open .lp-p2     { animation: lpSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.40s both; }
+    .lp-overlay.open .lp-sheet3 { animation: lpSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.52s both; }
+    @media (prefers-reduced-motion: reduce) {
+      .lp-overlay.open .lp-p1,
+      .lp-overlay.open .lp-p2,
+      .lp-overlay.open .lp-m-paper1,
+      .lp-overlay.open .lp-m-paper2,
+      .lp-overlay.open .lp-sheet3 { animation: none; }
+    }
+    .lp-close {
+      position: absolute; left: 53.5%; top: 15.7%;
+      width: 6%; height: 8.5%;
+      background: none; border: none; border-radius: 50%; padding: 0;
+      cursor: pointer; z-index: 5;
+    }
+    .lp-content {
+      position: absolute; left: 60.7%; top: 30%; width: 31%;
+      color: var(--teal); z-index: 4;
+      transform: rotate(-2.46deg);   /* follow the paper's tilt */
+      transform-origin: left top;
+    }
+    .lp-content .lp-headline {
+      font-family: 'DaVinci', var(--serif); font-weight: 500; white-space: nowrap;
+      font-size: 5.56cqw; line-height: 1; margin: 0 0 2.4cqw; color: var(--teal);   /* 80px @ 1440 artboard */
+    }
+    .lp-content .lp-blurb {
+      font-family: "Manjari", system-ui, sans-serif;
+      font-size: 1.39cqw; line-height: 1.45; color: var(--teal);   /* 20px @ 1440 artboard */
+      margin: 0 0 3cqw; max-width: 26em;
+    }
+    .lp-card {
+      background: #fff; border-radius: 1.4cqw;
+      box-shadow: 0 1.2cqw 3cqw rgba(60, 40, 25, 0.16); overflow: hidden;
+    }
+    .lp-fieldrow { padding: 1.05cqw 1.7cqw 0.7cqw; border-bottom: 1px solid #efe6dc; }
+    .lp-fieldrow .lab { color: #c0906a; font-size: 0.97cqw; margin-bottom: 0.25cqw; }   /* 14px @ 1440 */
+    .lp-fieldrow input {
+      width: 100%; border: none; outline: none; background: transparent;
+      font-family: "Manjari", system-ui, sans-serif; font-size: 1.39cqw; color: var(--teal);   /* 20px @ 1440 */
+    }
+    .lp-guestrow {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.85cqw 1.7cqw;
+    }
+    .lp-guestrow .lab { color: #c0906a; font-size: 0.97cqw; margin-bottom: 0.25cqw; }
+    .lp-guestrow .val { font-size: 1.39cqw; color: var(--teal); }
+    .lp-stepper { display: flex; align-items: center; gap: 0.7cqw; }
+    .lp-step {
+      width: 2.4cqw; height: 2.4cqw; border-radius: 50%; border: none; cursor: pointer;
+      background: var(--cream); color: var(--teal); font-size: 1.6cqw;
+      font-family: inherit; display: flex; align-items: center; justify-content: center;
+      line-height: 1; padding: 0; transition: background 0.15s ease;
+    }
+    .lp-step:hover { background: #ece0d3; }
+    .lp-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-top: 1.944cqw; padding: 1.111cqw 2.014cqw 0.556cqw;   /* 28px gap; 16/29/8/29px padding @ 1440 */
+      background: var(--orange); color: #fff;
+      font-family: "Manjari", system-ui, sans-serif; font-weight: 700; font-size: 1.4cqw;
+      border: none; border-radius: 50px; cursor: pointer;
+      box-shadow: 0 0.4cqw 1.4cqw rgba(245, 139, 48, 0.4);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+    .lp-btn:hover { transform: scale(1.04); background: var(--orange-deep); }
+    .lp-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+    /* Success state: card content is swapped for a "Request sent" message */
+    .lp-sent {
+      display: none; min-height: 13.5cqw;
+      align-items: center; justify-content: center; padding: 1.5cqw;
+      font-family: "Manjari", system-ui, sans-serif; font-size: 1.6cqw;
+      color: #c0906a; text-align: center;
+    }
+    #rsvpForm.sent .lp-fieldrow,
+    #rsvpForm.sent .lp-guestrow { display: none; }
+    #rsvpForm.sent .lp-sent { display: flex; }
+    .lp-form-msg { margin-top: 1cqw; min-height: 1.2em; font-size: 1.4cqw; color: #b23b2e; }
+    .lp-m-layer { display: none; }   /* mobile-only portrait overlay layers (see @media) */
+
+    /* ── Mobile ──────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      /* Hero title uses the two-line wordmark (swapped in JS). Keep the box full-width
+         (left:0/width:100% from base → reliably centred) and just shrink its height so
+         the effect fits the taller 2-line artwork to the width instead of overflowing. */
+      .hero-type { top: calc(12vh - 24px); height: 64vw; }   /* new stacked wordmark aspect 1230:782 */
+      .logo-track img { height: 36px; }   /* smaller retailer logos on mobile */
+      .credits { display: none; }          /* hide credits on mobile */
+
+      /* Launch pill: cream, centred, between the subhead and the bear — NOT sticky, it
+         scrolls away with the hero. `position:absolute` (with .corner-actions made static
+         below) anchors it to the document top, so it moves up and off as you scroll. Swap
+         the label to the longer mobile text; neutralise the :hover scale so it stays centred. */
+      .corner-actions { position: static; }
+      .lp-txt-d { display: none; }
+      .lp-txt-m { display: inline; }
+      #launchPartyBtn {
+        position: absolute; top: 51vh; left: 50%; transform: translateX(-50%);
+        width: auto; height: 54px; padding: 4px 34px 0;
+        background: #F4EDE2; color: #1c4a53; font-size: 18px; white-space: nowrap;
+        z-index: 12;   /* above main (z-index:2) so the spacer scene can't steal the tap */
+      }
+      #launchPartyBtn:hover { transform: translateX(-50%); }
+
+      /* Sound: cream circle, icon only, bottom-right corner. */
+      #soundToggle {
+        position: fixed; left: auto; top: auto;
+        right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+        width: 54px; height: 54px; min-width: 0; padding: 0; gap: 0;
+        border: none; border-radius: 50%;
+        background: #F4EDE2; color: #1c4a53;   /* cream circle, dark icon */
+        justify-content: center;
+        z-index: 12;   /* above main (z-index:2) so the book canvas can't cover/steal taps */
+      }
+      #soundToggle #soundLabel { display: none; }   /* match specificity of the base rule */
+      #soundToggle svg { width: 22px; height: 22px; }
+
+      /* Book-flip: full-bleed on mobile. The mobile `.scene { padding: 0 5vw }` rule above
+         otherwise insets the canvas ~5vw each side, so the book clipped at the canvas edge
+         (a hard line inside the screen) instead of running off the true viewport edge. */
+      /* Fixed bg canvas: anchor to the TOP and grow DOWNWARD past the screen bottom (100lvh
+         + 140px slack) so it paints UNDER the Safari bottom bar. Anchoring bottom:0 would stop
+         it on top of a docked bar — the opposite of what we want. Height matches the renderer
+         buffer (stageH = lvh + BG_SLACK) so the watercolor isn't stretched. */
+      #bgCanvas { top: 0 !important; bottom: auto !important; height: calc(100lvh + 140px) !important; }
+      .scene--bookflip { padding: 0; }
+      /* Book flips centred (no left shift — see JS mobile branch), then the pre-order copy
+         becomes a full-width centred screen with a full-width CTA. */
+      .bookflip-text {
+        right: auto; left: 50%; top: 50%;
+        width: calc(100vw - 80px); max-width: none;   /* 40px margin each side; transform set by JS */
+      }
+      .bookflip-text .panel-heading { font-size: 2.3rem; margin-bottom: 1.1rem; }
+      .bookflip-text .panel-desc { font-size: 1.25rem; margin-bottom: 1.1rem; }   /* 20px @ 390 mock */
+      .bookflip-text .panel-price { font-size: 1.1rem; margin: 1.3rem 0 1.5rem; }
+      .bookflip-text .cta { display: flex; width: 100%; height: 60px; padding: 4px 0 0; font-size: 1.15rem; }
+
+      /* Contact / about — full portrait blob composite (contact-mobile-bg.png). Must be
+         full-bleed: the mobile `.scene { padding: 0 5vw }` otherwise narrows .about-pin to
+         90vw and the flex .scene__inner shrinks to it, leaving teal margins each side. */
+      .scene--about { padding: 0; }
+      .scene--about .scene__inner {
+        width: 100vw; max-width: none;
+        height: 100lvh; aspect-ratio: auto;
+        container-type: normal;   /* drop cqw sizing on mobile → use rem/vw below */
+        overflow: hidden;   /* clip the blob/couple bleed to the section box */
+      }
+      .about__blobimg { display: none; }
+      /* Split composition (crisp, separate transparent PNGs): the cream blob is the bg with
+         only its top arc showing (bleeds off both sides + the bottom); the couple cutout sits
+         bottom-right, bleeding off the bottom + right. Both are decorative → pointer-events:none
+         so the Contact button (in .about__text, z-index 2) always takes taps. */
+      .about__mbg { display: block; position: absolute; height: auto; pointer-events: none; }
+      .about__mbg-blob {
+        z-index: 0; left: 50%; transform: translateX(-50%);
+        top: 20vh; width: 240vw; max-width: none;
+      }
+      .about__mbg-couple {
+        z-index: 1; right: -15vw; bottom: -34vh; width: 84vw;
+      }
+      .about__text { left: 40px; top: 26vh; transform: none; width: calc(100vw - 80px); z-index: 2; }
+      .scene--about .panel-heading { font-size: 1.9rem; line-height: 1.12; margin-bottom: 0.9rem; }
+      .scene--about .panel-desc { font-size: 18px; line-height: 1.48; margin-bottom: 0.8rem; }
+      .scene--about .about__body .panel-desc:last-of-type { margin-bottom: 1.2rem; }
+      .scene--about .cta { font-size: 1.05rem; padding: 11px 28px 7px; }
+
+      /* ── Footer — compact dark bar (publisher left, copyright right) ── */
+      .site-footer { display: none; }   /* desktop fixed bar off; mobile uses the section below */
+      .scene--footer {
+        min-height: 0; display: block; padding: 0;
+        text-align: left; background: #2b2118;
+      }
+      .footer__inner { display: none; }   /* hide the desktop cream-over-stars footer */
+      .footer__m {
+        position: relative; display: block;
+        padding: 1.5rem 6vw calc(1.5rem + env(safe-area-inset-bottom, 0px));
+        font-family: "Manjari", system-ui, sans-serif;
+        font-size: 0.85rem; line-height: 1.6; color: rgba(246, 236, 227, 0.6);
+      }
+      /* copyright pinned bottom-right, level with the last address line */
+      .footer__m-copy {
+        position: absolute; right: 6vw; bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+        white-space: nowrap;
+      }
+
+      /* ── Launch overlay — portrait full-screen notepad (dedicated mobile layers) ── */
+      .lp-art {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        aspect-ratio: auto; max-width: none; container-type: normal;
+      }
+      /* hide the desktop landscape layers */
+      .lp-p1, .lp-p2, .lp-paper3, .lp-logo, .lp-bear, .lp-closeimg { display: none; }
+      /* show the portrait mobile layers, each filling the screen frame */
+      .lp-m-layer {
+        display: block; position: absolute; inset: 0;
+        width: 100%; height: 100%; object-fit: contain; object-position: center;
+        pointer-events: none; user-select: none;
+      }
+      /* paper is wider than the phone → cover so it bleeds to the edges */
+      .lp-m-paper1, .lp-m-paper2, .lp-m-paper3 { object-fit: cover; }
+      /* Entrance: same staggered slide-in-from-the-right + settle as desktop. The two back
+         papers glide in behind, then the top sheet (paper-3 + logo/bear/close/content) lands
+         last. sheet3 keeps its desktop `lpSlideIn` (0.52s) — no `animation:none` override here. */
+      .lp-m-paper1 { --lp-tx: 64%; --lp-rot: 6deg; }
+      .lp-m-paper2 { --lp-tx: 60%; --lp-rot: 5deg; }
+      .lp-overlay.open .lp-m-paper1 { animation: lpSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.28s both; }
+      .lp-overlay.open .lp-m-paper2 { animation: lpSlideIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.40s both; }
+      /* Close ✕: use the cropped icon on the button so it can align to the text's left edge
+         (7%, same as .lp-content) — the full-frame lp-m-close baked it further in. */
+      .lp-m-close { display: none; }
+      .lp-close {
+        left: 7%; top: 23%; width: 37px; height: 37px;   /* ✕ 20% smaller */
+        border: none; border-radius: 0; z-index: 6;
+        background: url('lpm-close-icon.png') left center / contain no-repeat;
+      }
+      /* SOHO HOUSE logo (cropped) pinned to the form's right margin (7% from the right) */
+      .lp-m-logo {
+        inset: auto; right: 7%; top: 23%; width: 20vw; height: auto; object-fit: fill;
+      }
+      /* Content: upright, stacked, on the cream paper below the logo/close row */
+      .lp-content {
+        position: absolute; left: 0; right: 0; width: auto; z-index: 4;
+        top: 31%; padding: 0 7%; transform: none; color: var(--teal);
+      }
+      .lp-content .lp-headline { font-size: 2.8rem; line-height: 1.0; margin: 0 0 1.1rem; white-space: normal; }
+      .lp-content .lp-blurb { font-size: 1rem; line-height: 1.45; margin: 0 0 1.4rem; max-width: none; }
+      .lp-card { border-radius: 16px; box-shadow: 0 10px 30px rgba(60,40,25,0.16); }
+      .lp-fieldrow { padding: 0.7rem 1.1rem 0.5rem; }
+      .lp-fieldrow .lab { font-size: 0.8rem; margin-bottom: 0.1rem; }
+      .lp-fieldrow input { font-size: 1.05rem; }
+      .lp-guestrow { padding: 0.6rem 1.1rem; }
+      .lp-guestrow .lab { font-size: 0.8rem; margin-bottom: 0.1rem; }
+      .lp-guestrow .val { font-size: 1.05rem; }
+      .lp-stepper { gap: 0.6rem; }
+      .lp-step { width: 34px; height: 34px; font-size: 1.3rem; }
+      .lp-btn { margin-top: 1.2rem; padding: 12px 26px 9px; font-size: 1.05rem; box-shadow: 0 4px 16px rgba(245,139,48,0.4); }
+      .lp-sent { min-height: 120px; font-size: 1.1rem; padding: 1.2rem; }
+      .lp-form-msg { font-size: 0.9rem; }
+    }
+
+    /* ── Preloader (full-screen loading overlay, universal — not mobile-gated) ── */
+    #preloader {
+      position: fixed; inset: 0; z-index: 40;   /* above .lp-overlay (30), main (2), #bgCanvas (0) */
+      background: var(--teal);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; opacity: 1;
+      transition: opacity 0.6s ease;
+    }
+    #preloader.pl-hidden { opacity: 0; pointer-events: none; }
+    .pl-count {
+      font-family: var(--serif); color: var(--orange);
+      font-size: clamp(3.5rem, 16vw, 11rem); line-height: 1;
+      font-variant-numeric: tabular-nums;   /* digits don't jitter width */
+    }
+    .pl-label {
+      position: fixed; bottom: clamp(28px, 8vh, 64px); left: 0; right: 0; text-align: center;
+      font-family: "Manjari", system-ui, sans-serif; color: var(--orange);
+      font-size: clamp(0.8rem, 2.2vw, 1.1rem); letter-spacing: 0.35em;
+      text-transform: uppercase; opacity: 0.85;
+    }
+    @media (prefers-reduced-motion: reduce) { #preloader { transition: opacity 0.2s linear; } }
+  </style>
+</head>
+<body>
+  <!-- Preloader: shown on parse, preloads the heavy assets (136 book-flip frames +
+       7 PixiJS hero images) behind a 0→100% counter, then fades out to the ready hero. -->
+  <div id="preloader" role="progressbar" aria-label="Loading" aria-live="polite"
+       aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <span id="plCount" class="pl-count">0%</span>
+    <span class="pl-label">Loading</span>
+  </div>
+  <script>
+    (function () {
+      var el = document.getElementById('preloader');
+      var countEl = document.getElementById('plCount');
+      if (!el || !countEl) return;
+
+      // Keep in sync with the producers:
+      //   PIXI_UNITS  = number of loadImg() calls in the Pixi Promise.all (below, ~"const [imgBg,...]")
+      //   FRAME_UNITS = FRAMES const in the book-flip IIFE (below, "const FRAMES = 136")
+      var PIXI_UNITS = 7;
+      var FRAME_UNITS = 136;
+      var TOTAL_UNITS = PIXI_UNITS + FRAME_UNITS;   // 143
+
+      var settled = 0, done = false;
+      var startTime = (window.performance && performance.now) ? performance.now() : Date.now();
+      var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
+      var MIN_MS = 750;      // minimum on-screen time (no flash on cached loads)
+      var SAFETY_MS = 9000;  // force-complete if something stalls
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      var real = 0;    // 0..1 actual fraction settled
+      var shown = 0;   // 0..1 eased displayed fraction (monotonic up)
+
+      function paint(frac) {
+        var pct = Math.max(0, Math.min(100, Math.round(frac * 100)));   // clamp, never NaN/>100
+        countEl.textContent = pct + '%';
+        el.setAttribute('aria-valuenow', pct);
+      }
+
+      // Producers call this once per settled asset (load OR error).
+      window.__loader__ = {
+        tick: function () {
+          if (settled < TOTAL_UNITS) settled++;
+          real = settled / TOTAL_UNITS;
+          if (settled >= TOTAL_UNITS) finish();
+        }
+      };
+
+      function finish() {
+        if (done) return;
+        done = true; real = 1;
+        if (reduce) { shown = 1; }
+        var t = setInterval(function () {
+          if (shown >= 0.999 && (now() - startTime) >= MIN_MS) {
+            clearInterval(t);
+            reveal();
+          }
+        }, 50);
+      }
+
+      function reveal() {
+        paint(1);
+        try { window.scrollTo(0, 0); } catch (e) {}
+        el.classList.add('pl-hidden');
+        var HIDE_MS = reduce ? 240 : 660;
+        setTimeout(function () { el.style.display = 'none'; }, HIDE_MS);
+      }
+
+      if (reduce) {
+        var poll = setInterval(function () {
+          paint(real);
+          if (real >= 1) clearInterval(poll);
+        }, 100);
+      } else {
+        (function raf() {
+          var target = done ? 1 : real;
+          shown += Math.max((target - shown) * 0.12, target > shown ? 0.0008 : 0);
+          if (shown > target) shown = target;   // don't overshoot real until finishing
+          paint(shown);
+          if (!(done && shown >= 0.999)) requestAnimationFrame(raf);
+        })();
+      }
+
+      // Safety net: force-complete no matter what.
+      setTimeout(function () { settled = TOTAL_UNITS; real = 1; finish(); }, SAFETY_MS);
+    })();
+  </script>
+
+  <div class="logobar">
+    <div class="logo-track">
+      <img src="logos.png" alt="Available at Barnes &amp; Noble, Waterstones, Walmart, Foyles, Adlibris, Amazon">
+      <img src="logos.png" alt="" aria-hidden="true"><!-- duplicate for seamless loop -->
+    </div>
+  </div>
+
+  <div class="hero-type" id="heroType" aria-label="Stripey Bear"></div>
+
+  <!-- Scroll sections over the fixed PixiJS background -->
+  <main>
+    <!-- Hero lives in the fixed layers behind (hair-lettering + PixiJS bear); this
+         spacer just gives it a viewport to scroll past. -->
+    <section class="scene scene--spacer" aria-label="Stripey Bear hero"></section>
+
+    <!-- Book flip: scroll-scrubbed WebP sequence (Apple-style), transparent over the fixed bg -->
+    <section class="scene scene--bookflip" aria-label="The book flipping through its pages">
+      <div class="bookflip-pin">
+        <canvas id="bookFlipCanvas"></canvas>
+        <div class="bookflip-text" id="bookFlipText">
+          <h2 class="panel-heading">Stripey Bear,<br>Where Are You From?</h2>
+          <p class="panel-desc">Follow the adventures of Stripey Bear and his family as they
+            travel the world to discover where he's from… A heartwarming, rhyming tale about
+            heritage, home and belonging.</p>
+          <p class="panel-desc">You'll be able to purchase the book at many of your favourite
+            bookstores around the world, or support us directly by purchasing it here.</p>
+          <p class="panel-price">£6.99 <span>+ Shipping</span></p>
+          <a class="cta" href="https://buy.stripe.com/28E14nbhsdS3cGn3PSgIo00" target="_blank" rel="noopener">Pre-order</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- (Old blob pre-order section removed — the book-flip section now covers it) -->
+
+    <!-- Text transition (wavy verse, scroll-scrubbed right→left sweep) -->
+    <section class="scene scene--text">
+      <div class="verse-pin">
+        <svg id="verseSvg" preserveAspectRatio="none" aria-label="Little round ears, a soft squidgy snout, and a short stubby tail that jiggled about">
+          <path id="verseLane1" class="verse-path" d="M0 0"/>
+          <path id="verseLane2" class="verse-path" d="M0 0"/>
+          <text id="verseTextEl1" text-anchor="start"><textPath id="verseText1" href="#verseLane1" startOffset="0">Little round ears, a soft squidgy snout</textPath></text>
+          <text id="verseTextEl2" text-anchor="start"><textPath id="verseText2" href="#verseLane2" startOffset="0">and a short stubby tail that jiggled about...</textPath></text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- About / Meet the Author — full-frame contact-blob + text, staged reveal
+         (same treatment as the pre-order book-preview section) -->
+    <section class="scene scene--about">
+      <div class="about-pin">
+      <div class="scene__inner no-reveal">
+        <img class="about__layer about__blobimg" src="contact-blob.png" alt="Faria and Jesper Ferdous Ellesson">
+        <!-- Mobile-only: portrait recomposition — CSS cream blob with the authors photo
+             (cropped from contact-blob.png) placed bottom-right. Hidden on desktop. -->
+        <!-- Mobile-only: cream blob (bg, top arc visible) + couple cutout (fg, bottom-right).
+             Two separate high-res transparent PNGs, layered + positioned in the media query. -->
+        <img class="about__mbg about__mbg-blob" src="blob-mobile.png" alt="" aria-hidden="true">
+        <img class="about__mbg about__mbg-couple" src="couple-mobile.png" alt="Faria and Jesper Ferdous Ellesson">
+        <div class="about__text">
+          <h2 class="panel-heading">Meet the Author<br>&amp; Illustrator</h2>
+          <div class="about__body">
+            <p class="panel-desc">As partners, parents, and creative collaborators, this debut
+              picture book from Faria &amp; Jesper is shaped by their shared experience of raising
+              a multicultural family.</p>
+            <p class="panel-desc">Created for their children, the story of Stripey Bear is an
+              invitation to stay curious about culture, to feel rooted in heritage, and to
+              celebrate every part of who you are.</p>
+            <a class="cta" href="mailto:hello@stripeybear.com">Contact</a>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- Footer: copyright + publisher, over the fixed teal/stars background -->
+    <footer class="scene scene--footer" aria-label="Copyright and publisher">
+      <div class="footer__inner">
+        <p class="footer__copy">© Copyright 2026</p>
+        <p class="footer__pub">First Published in 2026<br>Nightingale Books<br>Sheraton House Castle Park<br>Cambridge England</p>
+      </div>
+      <!-- Mobile-only: compact dark footer bar (publisher left, copyright right) -->
+      <div class="footer__m">
+        <div class="footer__m-addr">Nightingale Books, Pegasus Publishers<br>Sheraton House Castle Park<br>Cambridge England</div>
+        <div class="footer__m-copy">© Copyright 2026</div>
+      </div>
+    </footer>
+  </main>
+
+  <!-- Fixed footer bar (desktop): slides up as you reach the contact section; hidden on mobile -->
+  <div class="site-footer" aria-label="Publisher and copyright">
+    <span class="site-footer__pub">First published by <span class="hl">Nightingale Books, Pegasus Publishers</span>, Cambridge, UK</span>
+    <span class="site-footer__copy"><span class="hl">Stripey Bear Inc.</span>&nbsp;&nbsp;© Copyright 2026</span>
+  </div>
+
+  <!-- Persistent credits (bottom-left) -->
+  <div class="credits">
+    <span>Written by Faria Ferdous Ellesson</span>
+    <span>Illustrated by Jesper Ferdous Ellesson</span>
+  </div>
+
+  <!-- Persistent corner actions (bottom-right) -->
+  <div class="corner-actions">
+    <button class="pill" id="launchPartyBtn"><span class="lp-txt-d">Launch Party</span><span class="lp-txt-m">Join the launch party</span></button>
+    <button class="pill muted" id="soundToggle" aria-label="Toggle soundtrack">
+      <span id="soundLabel">Sound On</span>
+      <svg class="icon-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="4 9 8 9 13 5 13 19 8 15 4 15" fill="currentColor" stroke="currentColor" stroke-width="2.4"/>
+        <path d="M16.5 9.2a4 4 0 0 1 0 5.6" stroke-width="2.2"/>
+        <path d="M19.3 6.8a8 8 0 0 1 0 10.4" stroke-width="2.2"/>
+      </svg>
+      <svg class="icon-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="4 9 8 9 13 5 13 19 8 15 4 15" fill="currentColor" stroke="currentColor" stroke-width="2.4"/>
+        <line x1="17.5" y1="9.5" x2="21.5" y2="14.5"/><line x1="21.5" y1="9.5" x2="17.5" y2="14.5"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Launch Party overlay — RSVP notepad (full-frame launch-*.png layers + form → Formspree) -->
+  <div class="lp-overlay" id="lpOverlay" aria-hidden="true">
+    <div class="lp-art" role="dialog" aria-modal="true" aria-labelledby="lpTitle">
+      <img class="lp-layer lp-p1" src="launch-paper-1.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+      <img class="lp-layer lp-p2" src="launch-paper-2.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+      <!-- Mobile back papers: siblings of the sheet so they slide in behind it, staggered -->
+      <img class="lp-m-layer lp-m-paper1" src="lpm-paper-1.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+      <img class="lp-m-layer lp-m-paper2" src="lpm-paper-2.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+      <!-- Top sheet: paper-3 carries all the content, so they animate in together -->
+      <div class="lp-sheet3">
+        <img class="lp-layer lp-paper3" src="launch-paper-3.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <img class="lp-layer lp-logo" src="launch-logo.png" alt="Soho House Stockholm" onerror="this.style.display='none'">
+        <img class="lp-layer lp-bear" src="launch-sb-wave-full-frame.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <img class="lp-layer lp-closeimg" src="launch-close-button.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <!-- Mobile-only top sheet + UI layers (hidden on desktop) -->
+        <img class="lp-m-layer lp-m-paper3" src="lpm-paper-3.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <img class="lp-m-layer lp-m-logo" src="lpm-logo-icon.png" alt="Soho House Stockholm" onerror="this.style.display='none'">
+        <img class="lp-m-layer lp-m-bear" src="lpm-bear.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <img class="lp-m-layer lp-m-close" src="lpm-close.png" alt="" aria-hidden="true" onerror="this.style.display='none'">
+        <button class="lp-close" id="lpClose" aria-label="Close"></button>
+        <div class="lp-content">
+        <h2 class="lp-headline" id="lpTitle">The official<br>launch party</h2>
+        <p class="lp-blurb">We'd love to invite you to join us at Soho House Stockholm, on the 12th of September, 2-4pm.</p>
+        <form id="rsvpForm" novalidate>
+          <div class="lp-card">
+            <div class="lp-fieldrow">
+              <div class="lab">Full Name</div>
+              <input id="lpName" type="text" name="name" autocomplete="name" required>
+            </div>
+            <div class="lp-fieldrow">
+              <div class="lab">Email</div>
+              <input id="lpEmail" type="email" name="email" autocomplete="email" required>
+            </div>
+            <div class="lp-guestrow">
+              <div>
+                <div class="lab">Number of guests</div>
+                <span class="val" id="lpGuestVal">1</span>
+              </div>
+              <div class="lp-stepper">
+                <button class="lp-step" type="button" id="lpGuestMinus" aria-label="Fewer guests">−</button>
+                <button class="lp-step" type="button" id="lpGuestPlus" aria-label="More guests">+</button>
+              </div>
+            </div>
+            <input type="hidden" name="guests" id="lpGuestsField" value="1">
+            <div class="lp-sent">Request sent</div>
+          </div>
+          <button class="lp-btn" type="submit">Request invite</button>
+          <div class="lp-form-msg" id="lpFormMsg" role="status" aria-live="polite"></div>
+        </form>
+        </div><!-- .lp-content -->
+      </div><!-- .lp-sheet3 -->
+    </div><!-- .lp-art -->
+  </div><!-- .lp-overlay -->
+
+  <audio id="bgTrack" src="stripey-track.min.mp3" loop preload="auto"></audio>
+
+  <script>
+    (function () {
+      const track = document.getElementById('bgTrack');
+      const btn = document.getElementById('soundToggle');
+      const label = document.getElementById('soundLabel');
+      if (!track || !btn) return;
+      track.volume = 0.55;
+
+      let want = false;        // the single source of truth: should the track be playing?
+      let userTouched = false; // once the user uses the toggle, auto-unlock is disabled
+      let lastToggle = 0;      // debounce so pointerup + click don't double-fire per tap
+
+      const render = () => {
+        btn.classList.toggle('muted', !want);
+        if (label) label.textContent = want ? 'Sound On' : 'Sound Off';
+      };
+      const apply = () => {
+        if (want) { const p = track.play(); if (p && p.catch) p.catch(() => { want = false; render(); }); }
+        else track.pause();
+        render();
+      };
+
+      // Authoritative toggle. Bound to BOTH pointerup (fires reliably on iOS touch —
+      // click was intermittently not firing on repeat taps) and click (mouse + keyboard).
+      // The 300ms debounce ensures one tap = one flip.
+      const toggle = (e) => {
+        const now = Date.now();
+        if (now - lastToggle < 300) return;
+        lastToggle = now;
+        if (e && e.preventDefault) e.preventDefault();
+        userTouched = true;
+        want = !want;
+        apply();
+      };
+      btn.addEventListener('pointerup', toggle);
+      btn.addEventListener('click', toggle);
+
+      // First non-button gesture starts the track (browsers block autoplay-with-sound
+      // on load). Ignores taps on the toggle so it never fights it, self-removes, and
+      // never re-enables once the user has taken control.
+      const unlock = (e) => {
+        if (e.target && e.target.closest && e.target.closest('#soundToggle')) return;
+        window.removeEventListener('pointerdown', unlock, true);
+        window.removeEventListener('keydown', unlock, true);
+        if (!userTouched) { want = true; apply(); }
+      };
+      window.addEventListener('pointerdown', unlock, true);
+      window.addEventListener('keydown', unlock, true);
+
+      render();   // start muted (matches the default)
+    })();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
+  <script>
+  (async () => {
+
+    // ── App ──────────────────────────────────────────────────────────────────
+    // Mobile Safari/Chrome collapse their address bar during scroll, which changes
+    // window.innerHeight and — if we resized the renderer to it — made the whole fixed
+    // background snap/jitter. On mobile we instead size to the LARGE viewport height
+    // (100lvh), which stays constant as the bar moves, so the bar just reveals more of the
+    // already-positioned scene (no snap). Desktop keeps using innerHeight unchanged.
+    function largeViewportH() {
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none;';
+      document.body.appendChild(probe);
+      const h = probe.getBoundingClientRect().height;
+      probe.remove();
+      return h > 0 ? Math.round(h) : (document.documentElement.clientHeight || window.innerHeight);
+    }
+    const isMobileVP = () => window.innerWidth <= 768;
+    // Extra height added below the screen on mobile so the fixed bg canvas reaches UNDER the
+    // Safari bottom bar (a fixed element anchored to the viewport bottom stops above a docked
+    // bar; growing it downward past the bar is the only way to paint behind it). The hero
+    // (bear/subhead) is positioned against the *visible* height (largeViewportH) so this slack
+    // doesn't push it down — only the background + stars fill the extra area. Matches the
+    // `#bgCanvas { height: calc(100lvh + <slack>) }` CSS so buffer and element stay in sync.
+    const BG_SLACK = 140;
+    const stageH = () => isMobileVP() ? largeViewportH() + BG_SLACK : window.innerHeight;
+
+    const app = new PIXI.Application({
+      width:           window.innerWidth,
+      height:          stageH(),
+      backgroundAlpha: 0,
+      antialias:       true,
+      resolution:      window.devicePixelRatio || 1,
+      autoDensity:     true,
+    });
+    app.view.id = 'bgCanvas';   // so CSS can force full-screen coverage under the mobile bars
+    document.body.insertBefore(app.view, document.body.firstChild);
+    window.__pixiApp__ = app;   // exposed so the scene controller can pause it
+    let bgScrollY = 0;          // vertical star-field parallax offset (px), driven by the M3 scroll
+    // Shift the dots up/down for the M3 scroll parallax. Renders one frame on
+    // demand (the ticker is stopped once the book has arrived).
+    window.__setBgScroll__ = (y) => {
+      bgScrollY = y || 0;
+      if (app.ticker.started) return;   // a running ticker already applies bgScrollY each frame
+      for (const s of stars) s.g.y = s.hy + s.oy - bgScrollY;
+      app.renderer.render(app.stage);
+    };
+
+    // ── Assets — load via Image so file:// protocol works ────────────────────
+    const loadImg = src => new Promise((res) => {
+      const img = new Image();
+      // Resolve on BOTH outcomes (was: reject on error) so one missing PNG can't reject
+      // Promise.all and halt the whole Pixi setup; also ticks the preloader either way.
+      const settle = () => { if (window.__loader__) window.__loader__.tick(); res(img); };
+      img.onload  = settle;
+      img.onerror = settle;
+      // Cache-bust so freshly re-exported PNGs always load (avoids stale browser cache)
+      img.src = src + '?v=' + Date.now();
+    });
+
+    const [imgBg, imgBody, imgMane, imgHead, imgEyes, imgHl, imgSh] = await Promise.all([
+      loadImg('bg-no-stars.png'),
+      loadImg('bear-body.png'),
+      loadImg('bear-mane.png'),
+      loadImg('bear-head.png'),
+      loadImg('bear-eyes.png'),
+      loadImg('stripey-headline.png'),
+      loadImg('stripey-subhead.png'),
+    ]);
+
+    // ── Smooth noise texture (wind displacement map) ─────────────────────────
+    // Multi-octave value noise — R channel = X displacement, G = Y
+    function buildWindTexture(size = 512) {
+      const cv  = document.createElement('canvas');
+      cv.width  = size;
+      cv.height = size;
+      const ctx = cv.getContext('2d');
+      const id  = ctx.createImageData(size, size);
+
+      const hash = (x, y) => {
+        const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+        return n - Math.floor(n);
+      };
+      const vnoise = (x, y, freq) => {
+        const fx = x * freq, fy = y * freq;
+        const ix = Math.floor(fx), iy = Math.floor(fy);
+        const tx = fx - ix,       ty = fy - iy;
+        const ux = tx * tx * (3 - 2 * tx);
+        const uy = ty * ty * (3 - 2 * ty);
+        return (
+          hash(ix,   iy  ) * (1-ux) * (1-uy) +
+          hash(ix+1, iy  ) *    ux  * (1-uy) +
+          hash(ix,   iy+1) * (1-ux) *    uy  +
+          hash(ix+1, iy+1) *    ux  *    uy
+        );
+      };
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const i = (y * size + x) * 4;
+          // Octaves blended for organic look
+          const r = (vnoise(x,    y,    0.018) * 0.55 +
+                     vnoise(x,    y,    0.04 ) * 0.30 +
+                     vnoise(x,    y,    0.09 ) * 0.15) * 255;
+          const g = (vnoise(x+37, y+19, 0.018) * 0.55 +
+                     vnoise(x+37, y+19, 0.04 ) * 0.30 +
+                     vnoise(x+37, y+19, 0.09 ) * 0.15) * 255;
+          id.data[i]   = r;
+          id.data[i+1] = g;
+          id.data[i+2] = 128;
+          id.data[i+3] = 255;
+        }
+      }
+      ctx.putImageData(id, 0, 0);
+      const tex = PIXI.Texture.from(cv);
+      tex.baseTexture.wrapMode = PIXI.WRAP_MODES.REPEAT;
+      return tex;
+    }
+
+    const windTex = buildWindTexture(512);
+
+    // ── Radial warp texture (cursor bg displacement) ─────────────────────────
+    // Each pixel encodes outward-push direction: R = X component, G = Y component
+    // Center = max push, edges = neutral (128,128)
+    function buildRadialWarp(size = 512) {
+      const cv  = document.createElement('canvas');
+      cv.width  = size;
+      cv.height = size;
+      const ctx = cv.getContext('2d');
+      const id  = ctx.createImageData(size, size);
+      const c   = size / 2;
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const dx   = x - c, dy = y - c;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const falloff = Math.exp(-(dist * dist) / (2 * (c * 0.38) ** 2));
+          const nx   = dist > 0 ? dx / dist : 0;
+          const ny   = dist > 0 ? dy / dist : 0;
+          const i    = (y * size + x) * 4;
+          id.data[i]   = Math.round(128 + nx * 127 * falloff);
+          id.data[i+1] = Math.round(128 + ny * 127 * falloff);
+          id.data[i+2] = 128;
+          id.data[i+3] = 255;
+        }
+      }
+      ctx.putImageData(id, 0, 0);
+      return PIXI.Texture.from(cv);
+    }
+
+    const warpTex = buildRadialWarp(512);
+
+    // ── Sprites ──────────────────────────────────────────────────────────────
+    const bgSpr   = PIXI.Sprite.from(imgBg);
+    const hlSpr   = PIXI.Sprite.from(imgHl);
+    const shSpr   = PIXI.Sprite.from(imgSh);
+    const bodySpr = PIXI.Sprite.from(imgBody);
+    const maneSpr = PIXI.Sprite.from(imgMane);
+    const headSpr = PIXI.Sprite.from(imgHead);
+    const eyesSpr = PIXI.Sprite.from(imgEyes);
+
+    // Wind displacement sprite (mane)
+    const dispSpr = new PIXI.Sprite(windTex);
+    dispSpr.alpha = 0.001;
+
+    // Cursor warp sprite (bg) — positioned at cursor each frame
+    const WARP_SIZE = 1200;
+    const warpSpr  = new PIXI.Sprite(warpTex);
+    warpSpr.width  = WARP_SIZE;
+    warpSpr.height = WARP_SIZE;
+    warpSpr.alpha  = 0.001;
+
+    // ── Procedural stars ─────────────────────────────────────────────────────
+    // Mix of always-dim ambient stars + cursor-reveal-only stars.
+    // The field is taller than the viewport (FIELD_H × height) so the M3 scroll
+    // parallax never runs out of dots at the bottom; counts are scaled up to
+    // keep the on-screen density unchanged.
+    const FIELD_H = 1.5;   // star field height as a multiple of the viewport
+    const stars = [];
+    for (let i = 0; i < 275; i++) {
+      // Wide size spread — skewed small with occasional larger stars
+      const r = 0.4 + Math.pow(Math.random(), 2.2) * 3.4;
+      const g = new PIXI.Graphics();
+      g.beginFill(0xffffff);
+      g.drawCircle(0, 0, r);
+      g.endFill();
+      g.alpha = 0;
+      // Bigger stars glow brighter (0.55 → 1.0 across the size range)
+      const bright = 0.55 + ((r - 0.4) / 3.4) * 0.45;
+      stars.push({
+        g,
+        r,
+        nx:        Math.random(),             // normalised x (0-1)
+        ny:        Math.random() * FIELD_H,   // normalised y over the taller field
+        // ── Twinkle cycle: slow swell up, quicker fade down ──
+        period:    140 + Math.random() * 160, // frames for one full cycle (~2.3s–5s @60fps)
+        offset:    Math.random(),             // 0-1 starting point in the cycle
+        riseFrac:  0.62 + Math.random() * 0.16, // share of cycle spent fading IN (slow)
+        amp:       0.45 + Math.random() * 0.5, // twinkle depth
+        bright,                                // peak brightness, scaled by size
+        // 35% of stars are purely cursor-revealed; the rest have a visible ambient glow
+        baseAlpha: (Math.random() < 0.35 ? 0 : (0.22 + Math.random() * 0.38)) * bright,
+        // ── Physics: home position + offset/velocity for mouse push ──
+        hx: 0, hy: 0,   // home (resting) position, set in layout()
+        ox: 0, oy: 0,   // current offset from home
+        vx: 0, vy: 0,   // velocity of that offset
+        // Heavier (bigger) stars resist the push a little less obviously — vary mass
+        mass: 0.6 + Math.random() * 0.8,
+      });
+    }
+
+    // ── Extra small "dust" stars — only appear under the cursor ───────────────
+    for (let i = 0; i < 145; i++) {
+      const r = 0.3 + Math.pow(Math.random(), 2.5) * 1.1; // tiny
+      const g = new PIXI.Graphics();
+      g.beginFill(0xffffff);
+      g.drawCircle(0, 0, r);
+      g.endFill();
+      g.alpha = 0;
+      const bright = 0.5 + ((r - 0.3) / 1.1) * 0.4;
+      stars.push({
+        g, r,
+        nx:        Math.random(),
+        ny:        Math.random() * FIELD_H,
+        period:    140 + Math.random() * 160,
+        offset:    Math.random(),
+        riseFrac:  0.62 + Math.random() * 0.16,
+        amp:       0.45 + Math.random() * 0.5,
+        bright,
+        baseAlpha: 0,                            // invisible until the cursor reveals them
+        hx: 0, hy: 0, ox: 0, oy: 0, vx: 0, vy: 0,
+        mass: 1.0 + Math.random() * 0.8,         // light dust, easily nudged
+      });
+    }
+
+    // ── Extra medium stars — also only revealed under the cursor ──────────────
+    for (let i = 0; i < 145; i++) {
+      const r = 1.4 + Math.random() * 1.4; // medium (1.4–2.8px)
+      const g = new PIXI.Graphics();
+      g.beginFill(0xffffff);
+      g.drawCircle(0, 0, r);
+      g.endFill();
+      g.alpha = 0;
+      const bright = 0.6 + ((r - 1.4) / 1.4) * 0.4;
+      stars.push({
+        g, r,
+        nx:        Math.random(),
+        ny:        Math.random() * FIELD_H,
+        period:    140 + Math.random() * 160,
+        offset:    Math.random(),
+        riseFrac:  0.62 + Math.random() * 0.16,
+        amp:       0.45 + Math.random() * 0.5,
+        bright,
+        baseAlpha: 0,                            // invisible until the cursor reveals them
+        hx: 0, hy: 0, ox: 0, oy: 0, vx: 0, vy: 0,
+        mass: 0.8 + Math.random() * 0.8,
+      });
+    }
+
+    // ── Shooting star ─────────────────────────────────────────────────────────
+    const shootG = new PIXI.Graphics();
+    shootG.alpha = 0;
+    const shoot = {
+      active: false,
+      x: 0, y: 0, vx: 0, vy: 0,
+      life: 0, maxLife: 0,
+      len: 0,
+      cooldown: 180 + Math.random() * 300, // frames until first one
+    };
+
+    // ── Stage order (explicit, bottom → top) ─────────────────────────────────
+    app.stage.addChild(bgSpr);                          // base background
+    for (const s of stars) app.stage.addChild(s.g);    // procedural stars
+    app.stage.addChild(shootG);                         // shooting star
+    app.stage.addChild(shSpr);                          // subhead (headline is the HTML hair-lettering hero)
+    app.stage.addChild(bodySpr, maneSpr, headSpr, eyesSpr); // bear (+ tracking eyes)
+    app.stage.addChild(dispSpr, warpSpr);               // displacement sources
+
+    window.__subhead__ = shSpr;   // exposed so the hover-disintegrate effect can read its box + hide/show it
+
+    // ── Filters ───────────────────────────────────────────────────────────────
+    const warpFilter = new PIXI.filters.DisplacementFilter(warpSpr, 0);
+    bgSpr.filters = [warpFilter];
+
+    let warpScale = 0, warpScaleTgt = 0;
+    let windScroll = 1.5;   // ripple scroll speed (set per-layout so it scales with the bear)
+
+    // ── Wind filter ──────────────────────────────────────────────────────────
+    const windFilter = new PIXI.filters.DisplacementFilter(dispSpr, 38);
+    maneSpr.filters = [windFilter];
+
+    // ── Layout ───────────────────────────────────────────────────────────────
+    let bearBaseX = 0, bearBaseY = 0, bearScale = 1, shBaseY = 0, shBaseScale = 1;
+
+
+    function layout() {
+      const W = app.screen.width, H = app.screen.height;
+      const isMobile = W <= 768;
+      // Visible height = the screen without the BG_SLACK we add below the fold. Hero elements
+      // (subhead, bear) frame against this so the slack (which lets the bg reach under the
+      // bottom bar) doesn't push them down. Background + stars still use full H so they fill it.
+      const visH = isMobile ? largeViewportH() : H;
+
+      // Background: cover-fit
+      const bgs = Math.max(W / bgSpr.texture.width, H / bgSpr.texture.height);
+      bgSpr.width  = bgSpr.texture.width  * bgs;
+      bgSpr.height = bgSpr.texture.height * bgs;
+      bgSpr.x = (W - bgSpr.width)  / 2;
+      bgSpr.y = (H - bgSpr.height) / 2;
+
+      // Stars: home positions proportional to canvas size
+      for (const s of stars) {
+        s.hx = s.nx * W;
+        s.hy = s.ny * H;
+        s.g.x = s.hx + s.ox;
+        s.g.y = s.hy + s.oy - bgScrollY;
+      }
+
+      // Headline is now the HTML hair-lettering hero (.hero-type overlay).
+      // Subhead — centered, sits just below the hero-type container.
+      const shW   = isMobile ? W * 0.75 : Math.min(W * 0.52, 760);
+      shSpr.width  = shW;
+      shSpr.height = shSpr.texture.height * (shW / shSpr.texture.width);
+      shSpr.anchor.set(0.5, 0);
+      shSpr.x = W / 2;
+      shSpr.y = isMobile ? visH * 0.56 - 124 : H * 0.52;   // below the (larger) hero lettering
+      shBaseY = shSpr.y; shBaseScale = shSpr.scale.x;
+
+      // Bear — all PNGs share the same canvas; anchor bottom-center (bigger on mobile)
+      const bearW = isMobile ? Math.min(W * 1.12, 680) : Math.min(W * 0.40, 560);
+      const sc    = bearW / bodySpr.texture.width;
+      bearScale = sc;
+
+      bearBaseX = W / 2;
+      bearBaseY = isMobile ? visH * 1.0 : H * 1.06; // mobile: raise the bear so head+shoulders show
+
+      for (const sp of [bodySpr, maneSpr, headSpr, eyesSpr]) {
+        sp.width  = sp.texture.width  * sc;
+        sp.height = sp.texture.height * sc;
+        sp.anchor.set(0.5, 1);
+        sp.x = bearBaseX;
+        sp.y = bearBaseY;
+      }
+
+      // Wind scales with the bear so it looks consistent at any size
+      windFilter.scale.set(sc * 185);   // ~38 on desktop, gentler on mobile
+      windScroll = sc * 7.3;            // ~1.5 on desktop, slower ripple on mobile
+
+      // Displacement covers canvas + extra for scrolling headroom
+      dispSpr.width  = W * 2;
+      dispSpr.height = H;
+      dispSpr.x = 0;
+      dispSpr.y = 0;
+    }
+
+    layout();
+
+    let lastVPW = window.innerWidth;
+    window.addEventListener('resize', () => {
+      const w = window.innerWidth;
+      // Mobile: a height-only change is just the address bar collapsing/expanding — ignore it
+      // so the background doesn't snap. Only a width change (orientation) triggers a re-layout.
+      if (isMobileVP() && w === lastVPW) return;
+      lastVPW = w;
+      app.renderer.resize(w, stageH());
+      layout();
+    });
+
+    // ── Mouse ────────────────────────────────────────────────────────────────
+    let mx = window.innerWidth  / 2;
+    let my = window.innerHeight / 2;
+    let prevMx = mx, prevMy = my;
+    let mouseSpeed = 0;
+
+    let idleFrames = 0;   // how long since the mouse last moved
+    window.addEventListener('mousemove', e => {
+      prevMx = mx; prevMy = my;
+      mx = e.clientX; my = e.clientY;
+      mouseSpeed = Math.hypot(mx - prevMx, my - prevMy);
+      idleFrames = 0;
+    });
+
+    // Lerp state — head
+    let rotCur = 0, rotTgt = 0;
+    let txCur  = 0, txTgt  = 0;
+    let tyCur  = 0, tyTgt  = 0;
+
+    // Lerp state — eyes (extra offset on top of the head, snappier)
+    let exCur = 0, eyCur = 0;
+    const EYE_MAX_X = 6;   // px the pupils can travel horizontally
+    const EYE_MAX_Y = 4;   // px vertically
+
+    // Lerp state — star mask position + size
+    const MASK_BASE = 720;   // resting diameter px
+    const MASK_MAX  = 1500;  // max diameter at full speed
+    let maskX    = mx, maskY = my;
+    let maskSize = MASK_BASE;
+
+    // ── Main loop ────────────────────────────────────────────────────────────
+    let tick = 0;
+    app.ticker.add((deltaTime) => {
+      tick += deltaTime;
+
+
+      // ── Wind: scroll displacement map horizontally ──
+      dispSpr.x -= windScroll * deltaTime;
+      if (dispSpr.x < -window.innerWidth) dispSpr.x += window.innerWidth;
+
+      // ── Shooting star: occasional streak across the upper sky ──
+      if (!shoot.active) {
+        shoot.cooldown -= deltaTime;
+        if (shoot.cooldown <= 0) {
+          // Launch from a random point in the top band, angled down-across
+          const W = window.innerWidth, H = window.innerHeight;
+          const fromLeft = Math.random() < 0.5;
+          shoot.x = fromLeft ? -60 : W + 60;
+          shoot.y = Math.random() * H * 0.4;
+          const speed = 14 + Math.random() * 8;
+          const dir   = fromLeft ? 1 : -1;
+          const ang   = (0.12 + Math.random() * 0.18); // gentle downward slope
+          shoot.vx = dir * speed * Math.cos(ang);
+          shoot.vy =        speed * Math.sin(ang);
+          shoot.len     = 90 + Math.random() * 70;
+          shoot.maxLife = 60 + Math.random() * 30;
+          shoot.life    = 0;
+          shoot.active  = true;
+          shoot.cooldown = 420 + Math.random() * 900; // ~7–22s until the next
+        }
+      } else {
+        shoot.life += deltaTime;
+        shoot.x += shoot.vx * deltaTime;
+        shoot.y += shoot.vy * deltaTime;
+        const t = shoot.life / shoot.maxLife;
+        // Fade in quickly, fade out toward the end
+        const fade = Math.min(1, t * 4) * Math.max(0, 1 - Math.pow(t, 1.6));
+        const mag  = Math.hypot(shoot.vx, shoot.vy) || 1;
+        const ux = shoot.vx / mag, uy = shoot.vy / mag;
+        const tailX = shoot.x - ux * shoot.len;
+        const tailY = shoot.y - uy * shoot.len;
+        shootG.clear();
+        // Tapered trail
+        shootG.lineStyle({ width: 2.4, color: 0xffffff, alpha: 1, cap: 'round' });
+        shootG.moveTo(tailX, tailY);
+        shootG.lineTo(shoot.x, shoot.y);
+        // Bright head
+        shootG.beginFill(0xffffff, 1);
+        shootG.drawCircle(shoot.x, shoot.y, 2.6);
+        shootG.endFill();
+        shootG.alpha = fade;
+        const W = window.innerWidth, H = window.innerHeight;
+        if (shoot.life >= shoot.maxLife ||
+            shoot.x < -120 || shoot.x > W + 120 || shoot.y > H + 120) {
+          shoot.active = false;
+          shootG.alpha = 0;
+          shootG.clear();
+        }
+      }
+
+      // ── Cursor warp: follow mouse, intensity driven by movement speed ──
+      warpSpr.x = mx - WARP_SIZE / 2;
+      warpSpr.y = my - WARP_SIZE / 2;
+      warpScaleTgt = Math.min(mouseSpeed * 1.4, 28); // cap at 28px displacement
+      mouseSpeed  *= 0.82; // decay speed between frames
+      warpScale   += (warpScaleTgt - warpScale) * 0.12;
+      warpFilter.scale.set(warpScale);
+
+      // ── Stars: organic reveal radius lags behind cursor ──
+      maskX += (mx - maskX) * 0.10;
+      maskY += (my - maskY) * 0.10;
+      const targetSize = Math.min(MASK_BASE + mouseSpeed * 9, MASK_MAX);
+      maskSize += (targetSize - maskSize) * 0.08;
+      const revealR = maskSize / 2;
+
+      const PUSH_R = 140;     // radius within which the cursor shoves stars
+      const PUSH_K = 0.9;     // push strength
+      const SPRING = 0.02;    // pull back toward home
+      const DAMP   = 0.84;    // velocity damping (drift settles)
+
+      for (const s of stars) {
+        // ── Physics: cursor pushes the star, spring returns it home ──
+        const pdx  = s.g.x - mx;
+        const pdy  = s.g.y - my;
+        const pd   = Math.sqrt(pdx * pdx + pdy * pdy) || 0.001;
+        if (pd < PUSH_R) {
+          // Closer + faster mouse = stronger shove, scaled down by star mass
+          const force = (1 - pd / PUSH_R) * PUSH_K * (1 + mouseSpeed * 0.12) / s.mass;
+          s.vx += (pdx / pd) * force;
+          s.vy += (pdy / pd) * force;
+        }
+        // Spring back to home + damping
+        s.vx += -s.ox * SPRING;
+        s.vy += -s.oy * SPRING;
+        s.vx *= DAMP;
+        s.vy *= DAMP;
+        s.ox += s.vx * deltaTime;
+        s.oy += s.vy * deltaTime;
+        s.g.x = s.hx + s.ox;
+        s.g.y = s.hy + s.oy - bgScrollY;
+
+        // ── Brightness: ambient twinkle + cursor reveal ──
+        const dx   = s.g.x - maskX;
+        const dy   = s.g.y - maskY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const prox = Math.max(0, 1 - dist / revealR);
+        const cursorBoost = prox * s.bright; // linear falloff — reveals across more of the radius
+        // Twinkle cycle: phase 0→riseFrac = slow swell up, rest = quicker fade down
+        const lp = ((tick / s.period) + s.offset) % 1; // local phase 0-1
+        let env;
+        if (lp < s.riseFrac) {
+          const t = lp / s.riseFrac;            // slow rise
+          env = t * t * (3 - 2 * t);            // smoothstep ease
+        } else {
+          const t = (lp - s.riseFrac) / (1 - s.riseFrac); // faster fall
+          const e = 1 - t;
+          env = e * e * (3 - 2 * e);
+        }
+        const twinkle = (1 - s.amp) + s.amp * env;
+        s.g.alpha = Math.min(1, (s.baseAlpha + cursorBoost) * twinkle);
+      }
+
+      // ── Head looks toward mouse; wanders on its own when idle ──
+      idleFrames += deltaTime;
+      // Head center (approximate): anchor is bottom, so center ≈ y - height*0.5
+      const hcx = headSpr.x;
+      const hcy = headSpr.y - headSpr.height * 0.52;
+      const dx  = (mx - hcx) / window.innerWidth;
+      const dy  = (my - hcy) / window.innerHeight;
+
+      // Blend factor: follow the cursor when active, glance idly when the mouse rests
+      const idle = Math.min(1, Math.max(0, (idleFrames - 40) / 90)); // 0=active, 1=fully idle
+
+      // Head, mane and body stay fixed and attached — only the eyes move
+      headSpr.rotation = 0;
+      headSpr.x = bearBaseX;
+      headSpr.y = bearBaseY;
+      maneSpr.rotation = 0;
+      maneSpr.x = bearBaseX;
+
+      // ── Eyes: only the pupils track the cursor; gentle glance when idle ──
+      const lookX = Math.max(-1, Math.min(1, dx * 2.2));
+      const lookY = Math.max(-1, Math.min(1, dy * 2.2));
+      const glanceX = 0.55 * Math.sin(tick * 0.018 + 0.4);
+      const glanceY = 0.40 * Math.sin(tick * 0.025 + 1.7);
+      const exTgt = (lookX * (1 - idle) + glanceX * idle) * EYE_MAX_X;
+      const eyTgt = (lookY * (1 - idle) + glanceY * idle) * EYE_MAX_Y;
+      exCur += (exTgt - exCur) * 0.18;
+      eyCur += (eyTgt - eyCur) * 0.18;
+
+      eyesSpr.rotation = 0;
+      eyesSpr.x = bearBaseX + exCur;
+      eyesSpr.y = bearBaseY + eyCur;
+
+      // ── Hero→book transition (travel progress v = window.__heroT__) ──
+      // Subhead slides straight up out of the frame; the bear slides straight
+      // down below the frame. No scaling — just vertical exits + a fade.
+      const v = window.__heroT__ || 0;
+      const fade = Math.max(0, Math.min(1, 1 - v * 1.4));
+      const H = app.screen.height;
+      // Subhead — up out of the top
+      shSpr.y = shBaseY - v * H * 1.1;
+      // __subheadHide__ lets the hover-disintegrate effect hide the sprite while
+      // its particles play, without visible=false (so getBounds keeps tracking it).
+      shSpr.alpha = fade * (window.__subheadHide__ ? 0 : 1);
+      // Bear — down below the bottom
+      const down = v * H * 0.7;
+      bodySpr.y = bearBaseY + down; bodySpr.alpha = fade;
+      maneSpr.y = bearBaseY + down; maneSpr.alpha = fade;
+      headSpr.y = bearBaseY + down; headSpr.alpha = fade;
+      eyesSpr.y = bearBaseY + eyCur + down; eyesSpr.alpha = fade;
+    });
+
+  })();
+  </script>
+
+  <!-- Interactive hair-lettering hero -->
+  <script type="module">
+    import { createHairLettering } from './hairLettering.js';
+    const el = document.getElementById('heroType');
+    if (el && window.THREE) {
+      // Mobile uses a two-line ("Stripey" / "Bear") wordmark so the title fits the
+      // narrow viewport; desktop keeps the embedded one-line artwork untouched.
+      const mobileHero = (window.innerWidth || document.documentElement.clientWidth || 0) <= 768;
+      window.__hairHero__ = mobileHero
+        ? createHairLettering(el, { imageUrl: 'sb-headline-stacked-2.png' })
+        : createHairLettering(el);
+    } else if (!window.THREE) {
+      console.error('[hairLettering] three.js not loaded');
+    }
+  </script>
+
+  <!-- Organic blobs (pre-order + about) — very subtle ambient wobble + gentle
+       mouse-proximity response so they feel alive without distracting. -->
+  <script>
+  (function () {
+    // Closed smooth loop through points via Catmull-Rom → cubic bezier
+    function smoothPath(pts) {
+      const n = pts.length;
+      let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} `;
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+        const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+        d += `C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)} `;
+      }
+      return d + 'Z';
+    }
+
+    let mx = -9999, my = -9999;
+    window.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+
+    function makeBlob(svg) {
+      const path = svg.querySelector('path');
+      if (!path) return;
+      const N = 12, CX = 200, CY = 200, BASE_R = 150;
+      const seed = svg.dataset.blob === 'about' ? 3.7 : 0.6;  // distinct resting shape per blob
+      const points = Array.from({ length: N }, (_, i) => ({
+        angle: (i / N) * Math.PI * 2,
+        shape: Math.sin(i * 2.1 + seed) * 0.075 + Math.sin(i * 0.7 + 1.3 + seed) * 0.045,
+        freq:  0.4 + (i % 3) * 0.2,
+        phase: i * 1.7 + seed,
+      }));
+      // PERF: this blob carries a drop-shadow filter; animating its path every
+      // frame makes Safari re-rasterise that blur constantly. So it rests as a
+      // static (cached) shape and only wobbles while the cursor is over it —
+      // `amp` eases the motion in/out and the loop stops once it settles.
+      let t = 0, amp = 0, running = false;
+      function over() {
+        const r = svg.getBoundingClientRect();
+        return r.width && mx >= r.left - 40 && mx <= r.right + 40 && my >= r.top - 40 && my <= r.bottom + 40;
+      }
+      function build() {
+        const rect = svg.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const sx = rect.width / 400, sy = rect.height / 400;
+        const lmx = (mx - rect.left) / sx, lmy = (my - rect.top) / sy;
+        const mdx = lmx - CX, mdy = lmy - CY;
+        const mDist = Math.hypot(mdx, mdy), mAng = Math.atan2(mdy, mdx);
+        const inRange = mDist < 300;
+        const pts = points.map(p => {
+          const wob = Math.sin(t * p.freq + p.phase) * 0.011 * amp;   // subtle breathing (only while active)
+          let r = BASE_R * (1 + p.shape + wob);
+          if (inRange) {                                              // gentle, minimal cursor response
+            const ad = Math.atan2(Math.sin(mAng - p.angle), Math.cos(mAng - p.angle));
+            const aF = Math.max(0, 1 - Math.abs(ad) / 1.2);
+            const dF = Math.max(0, 1 - mDist / 300);
+            r += BASE_R * 0.045 * aF * aF * dF * amp;
+          }
+          return { x: CX + Math.cos(p.angle) * r, y: CY + Math.sin(p.angle) * r };
+        });
+        path.setAttribute('d', smoothPath(pts));
+      }
+      function loop() {
+        const tgt = over() ? 1 : 0;
+        amp += (tgt - amp) * 0.06;
+        if (amp > 0.01) t += 0.02;
+        build();
+        if (amp < 0.02 && tgt === 0) { amp = 0; build(); running = false; return; }  // settled → static, stop
+        requestAnimationFrame(loop);
+      }
+      // Draw the resting shape as soon as the blob has a size. ResizeObserver
+      // covers resizes; the timed retry guarantees the initial draw even if
+      // layout/fonts aren't ready at init (and doesn't rely on rAF).
+      build();
+      let tries = 0;
+      (function ensure() {
+        build();
+        const d = path.getAttribute('d');
+        if ((!d || d.length < 12) && ++tries < 40) setTimeout(ensure, 60);
+      })();
+      if (window.ResizeObserver) new ResizeObserver(build).observe(svg);
+      else window.addEventListener('resize', build);
+      window.addEventListener('mousemove', () => { if (!running && over()) { running = true; requestAnimationFrame(loop); } }, { passive: true });
+    }
+    document.querySelectorAll('.blob').forEach(makeBlob);
+  })();
+  </script>
+
+  <!-- Wavy verse: the two lines ride TWO separate wavy lanes (different y, different
+       non-uniform wave patterns) and sweep right→left, staggered in time. As you
+       scroll down they also drift slightly UP the page. Scrubbed by section scroll. -->
+  <script>
+  (function () {
+    const svg  = document.getElementById('verseSvg');
+    const lane1 = document.getElementById('verseLane1');
+    const lane2 = document.getElementById('verseLane2');
+    const el1  = document.getElementById('verseTextEl1');
+    const el2  = document.getElementById('verseTextEl2');
+    const t1   = document.getElementById('verseText1');
+    const t2   = document.getElementById('verseText2');
+    const sec  = document.querySelector('.scene--text');
+    if (!svg || !lane1 || !lane2 || !sec) return;
+    const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+    let V1_FROM = 0, V1_TO = 0, V2_FROM = 0, V2_TO = 0, DRIFT = 0;
+
+    // Small seeded PRNG so each lane's irregular wave is stable across rebuilds.
+    function rng(seed) {
+      let a = seed >>> 0;
+      return function () {
+        a = a + 0x6D2B79F5 | 0;
+        let t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+
+    // Non-uniform wavy lane: both segment width and crest height vary per bump, and
+    // control handles are jittered, so it never reads as a clean repeating sine.
+    function buildLane(path, y, amp, wl, seed, x0, x1) {
+      const r = rng(seed);
+      let d = 'M ' + x0.toFixed(1) + ' ' + y.toFixed(1);
+      let x = x0, dir = (r() < 0.5 ? 1 : -1);
+      while (x < x1 - 1) {
+        const seg = Math.min(wl * (0.68 + r() * 0.8), x1 - x);
+        const h = amp * (0.45 + r() * 0.9);
+        const nx = x + seg;
+        const c1x = x + seg * (0.20 + r() * 0.18), c1y = y - dir * h * (1.1 + r() * 0.5);
+        const c2x = x + seg * (0.60 + r() * 0.18), c2y = y - dir * h * (1.1 + r() * 0.5);
+        d += ' C ' + c1x.toFixed(1) + ' ' + c1y.toFixed(1) + ', ' +
+             c2x.toFixed(1) + ' ' + c2y.toFixed(1) + ', ' + nx.toFixed(1) + ' ' + y.toFixed(1);
+        x = nx; dir = -dir;
+      }
+      path.setAttribute('d', d);
+    }
+
+    const solveX = (path, targetX) => {
+      const L = path.getTotalLength();
+      let lo = 0, hi = L;
+      for (let i = 0; i < 32; i++) { const m = (lo + hi) / 2; if (path.getPointAtLength(m).x < targetX) lo = m; else hi = m; }
+      return (lo + hi) / 2;
+    };
+
+    function layout() {
+      const W = svg.clientWidth || window.innerWidth;
+      const H = svg.clientHeight || window.innerHeight;
+      if (W < 50 || H < 50) return;   // not laid out yet — the retry below covers this
+      svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+      const fs = clampN(W * 0.15, 78, 198);
+      el1.style.fontSize = fs + 'px';
+      el2.style.fontSize = fs + 'px';
+      lane1.setAttribute('d', 'M0 0 H100000');           // temp straight paths to measure text
+      lane2.setAttribute('d', 'M0 0 H100000');
+      const len1 = t1.getComputedTextLength() || W;
+      const len2 = t2.getComputedTextLength() || W;
+      const maxLen = Math.max(len1, len2);
+      const pad = W * 0.3;
+      const x0 = -(maxLen + pad), x1 = W + maxLen + pad;
+      DRIFT = Math.min(H * 0.24, 220);   // total upward drift over the scroll (more dramatic)
+
+      // Two different lines, two different wave patterns (distinct y, amp, wavelength, seed).
+      // Taller amplitudes → more dramatic up/down; line 2 sits well below line 1.
+      buildLane(lane1, Math.round(H * 0.50), Math.min(H * 0.17, 135), Math.min(W * 0.95, 1150), 1337, x0, x1);
+      buildLane(lane2, Math.round(H * 0.78), Math.min(H * 0.13, 100), Math.min(W * 1.15, 1400), 9241, x0, x1);
+
+      V1_FROM = solveX(lane1, W + 40); V1_TO = solveX(lane1, -len1 - 40);   // off-right → off-left
+      V2_FROM = solveX(lane2, W + 40); V2_TO = solveX(lane2, -len2 - 40);
+      scrub();
+    }
+
+    function scrub() {
+      // Section scroll progress 0→1 across the pinned span. Line 2 lags line 1 → staggered.
+      const total = sec.offsetHeight - (window.innerHeight || 800);
+      const p = total > 0 ? clampN(-sec.getBoundingClientRect().top / total, 0, 1) : 0;
+      const p1 = clampN(p / 0.55, 0, 1);           // line 1 leads, exits by ~55%
+      const p2 = clampN((p - 0.45) / 0.55, 0, 1);  // line 2 enters later (~45%), exits at 100%
+      t1.setAttribute('startOffset', lerp(V1_FROM, V1_TO, p1).toFixed(1));
+      t2.setAttribute('startOffset', lerp(V2_FROM, V2_TO, p2).toFixed(1));
+      // Drift both lines up the page as you scroll down (line 2 a touch more).
+      el1.setAttribute('transform', 'translate(0 ' + (-p * DRIFT).toFixed(1) + ')');
+      el2.setAttribute('transform', 'translate(0 ' + (-p * DRIFT * 1.2).toFixed(1) + ')');
+    }
+
+    layout();
+    let tries = 0;   // retry until the lanes are actually built (layout may run before the SVG has size)
+    (function ensure() {
+      layout();
+      if ((lane1.getAttribute('d') || '').length < 40 && ++tries < 40) setTimeout(ensure, 60);
+    })();
+    window.addEventListener('resize', layout);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout);
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) { ticking = true; requestAnimationFrame(() => { scrub(); ticking = false; }); }
+    }, { passive: true });
+  })();
+  </script>
+
+  <!-- About staged scroll reveal: contact-blob scales up → heading rises →
+       body+button rise. Same treatment as the pre-order book-preview section. -->
+  <script>
+  (function () {
+    const sec = document.querySelector('.scene--about');
+    if (!sec) return;
+    const blob = sec.querySelector('.about__blobimg');
+    const heading = sec.querySelector('.panel-heading');
+    const body = sec.querySelector('.about__body');
+    if (!blob || !heading || !body) return;
+
+    const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+    const sub = (p, a, b) => clampN((p - a) / (b - a), 0, 1);
+    const easeOut = t => 1 - Math.pow(1 - t, 3);
+    const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+
+    function apply() {
+      const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+      const total = sec.offsetHeight - vh;
+      const rectTop = sec.getBoundingClientRect().top;
+      // Reveal spans the section's APPROACH + pin: it starts while the section is still
+      // rising into view (its top ~0.7vh below the fold), so the blob grows in to fill
+      // the space the outgoing verse vacates — no empty teal scroll between them.
+      const lead = vh * 0.7;
+      const P = total > 0 ? clampN((lead - rectTop) / (lead + total), 0, 1) : 0;
+
+      const sBlob = easeOutBack(sub(P, 0.00, 0.55));   // 1st: contact blob scales in, growing as the section rises
+      const hh    = easeOut(sub(P, 0.42, 0.72));       // 2nd: heading
+      const bb    = easeOut(sub(P, 0.58, 0.98));       // 3rd: body + button (finishes near section end → little dead scroll)
+
+      blob.style.transform = 'scale(' + sBlob.toFixed(3) + ')';
+      heading.style.opacity = hh.toFixed(3);
+      heading.style.transform = 'translateY(' + ((1 - hh) * 100).toFixed(1) + 'px)';
+      body.style.opacity = bb.toFixed(3);
+      body.style.transform = 'translateY(' + ((1 - bb) * 40).toFixed(1) + 'px)';
+    }
+
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) { ticking = true; requestAnimationFrame(() => { apply(); ticking = false; }); }
+    }, { passive: true });
+    window.addEventListener('resize', apply);
+    apply();
+  })();
+  </script>
+
+  <!-- Scroll controller: hero exit, star parallax, section reveals -->
+  <script>
+    (function () {
+      const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+      const heroEl = document.getElementById('heroType');
+      const lpBtn = document.getElementById('launchPartyBtn');   // mobile hero CTA (fades with the hero)
+      const footerEl = document.querySelector('.scene--footer');
+      const aboutEl = document.querySelector('.scene--about');   // desktop footer-swap trigger
+      const inners = Array.prototype.slice.call(document.querySelectorAll('.scene__inner:not(.no-reveal)'));
+      const getVH = () => window.innerHeight || document.documentElement.clientHeight || 800;
+      let vh = getVH(), hairPaused = false;
+      const PARALLAX = 0.12;   // stars drift up at this fraction of scroll → depth vs foreground
+
+      function frame() {
+        const y = window.scrollY || window.pageYOffset || 0;
+        // Hero (hair-lettering + PixiJS bear/subhead) exits upward over the first viewport.
+        const hv = clampN(y / vh, 0, 1);
+        window.__heroT__ = hv;                     // read by the PixiJS ticker (bear/subhead exit)
+        if (heroEl) {
+          heroEl.style.transform = 'translateY(' + (-hv * 95) + 'vh)';
+          heroEl.style.opacity = clampN(1 - hv / 0.7, 0, 1);
+          heroEl.style.pointerEvents = hv > 0.9 ? 'none' : 'auto';
+        }
+        // Mobile only: fade the launch-party CTA out with the headline/subhead as the hero
+        // exits. On desktop it's a persistent bottom pill — leave it untouched (clear any
+        // inline opacity if the viewport crosses back to desktop).
+        if (lpBtn) {
+          if (window.innerWidth <= 768) {
+            lpBtn.style.opacity = clampN(1 - hv / 0.7, 0, 1).toFixed(3);
+            lpBtn.style.pointerEvents = hv > 0.9 ? 'none' : 'auto';
+          } else if (lpBtn.style.opacity) {
+            lpBtn.style.opacity = ''; lpBtn.style.pointerEvents = '';
+          }
+        }
+        const pause = hv > 0.85;                   // free the hair WebGL once the hero has left
+        if (pause !== hairPaused) {
+          hairPaused = pause;
+          try { pause ? (window.__hairHero__ && window.__hairHero__.pause())
+                      : (window.__hairHero__ && window.__hairHero__.resume()); } catch (e) {}
+        }
+        // Star-field parallax: dots drift up slower than the foreground content.
+        try { window.__setBgScroll__ && window.__setBgScroll__(y * PARALLAX); } catch (e) {}
+        // Section reveals: content enters from the bottom of the frame, exits at the top.
+        for (const el of inners) {
+          const r = el.getBoundingClientRect();
+          const p = ((r.top + r.height / 2) - vh / 2) / vh;   // +1 below, 0 centred, -1 above
+          const inn = clampN((0.85 - p) / 0.45, 0, 1);        // fade/slide in from below
+          const out = clampN((p + 0.85) / 0.45, 0, 1);        // fade/slide out at the top
+          el.style.opacity = (inn * out).toFixed(3);
+          const ty = (1 - inn) * 70 - (1 - out) * 70;
+          el.style.transform = 'translateY(' + ty.toFixed(1) + 'px)';
+        }
+        // The footer swap (corner buttons + credits out, footer bar in).
+        // Mobile: the footer is a short scroll section → trigger as it enters view (0.95vh).
+        // Desktop: the footer is a FIXED bar → trigger once the contact section fills the
+        // viewport (i.e. you've scrolled to/past the bubble). -0.1vh = a hair of buffer;
+        // raise this negative number to reveal the footer later into the contact section.
+        if (window.innerWidth <= 768) {
+          if (footerEl) document.body.classList.toggle('at-footer', footerEl.getBoundingClientRect().top < vh * 0.95);
+        } else if (aboutEl) {
+          document.body.classList.toggle('at-footer', aboutEl.getBoundingClientRect().top < vh * -0.1);
+        }
+      }
+
+      let ticking = false;
+      function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(function () { frame(); ticking = false; }); } }
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', function () { vh = getVH(); frame(); });
+      frame();
+
+      // Launch Party overlay (lpBtn is already declared above, near heroEl)
+      const lp = document.getElementById('lpOverlay');
+      const lpClose = document.getElementById('lpClose');
+      if (lpBtn && lp) lpBtn.addEventListener('click', function () { lp.classList.add('open'); });
+      if (lpClose && lp) lpClose.addEventListener('click', function () { lp.classList.remove('open'); });
+      if (lp) lp.addEventListener('click', function (e) { if (e.target === lp) lp.classList.remove('open'); });
+    })();
+  </script>
+
+  <!-- Subhead hover-disintegrate (local brush): the "Where are you from?" line
+       (a PixiJS sprite of stripey-subhead.png) breaks into tiny particles only
+       within a soft RADIUS of the cursor, with a smooth falloff — so a dissolve
+       "hole" follows the cursor along the line and the text reforms behind it.
+       Technique is pixel-sampling: the PNG is drawn to an offscreen canvas once,
+       and every opaque pixel (on a grid) becomes a particle carrying its colour.
+       Each particle owns an `e` (energy) that eases toward smoothstep(1 − d/RADIUS)
+       where d = distance from the particle's home to the cursor; its screen pos =
+       home + scatter·e, so untouched particles render the crisp text and reassembly
+       lands exactly on home. While active the whole line is drawn as particles (so
+       the hole can actually appear) and the Pixi sprite is hidden via
+       window.__subheadHide__; homes track the live sprite bounds each frame (follows
+       the hero's scroll). Overlay canvas in the subhead's layer (z-index 1). Skipped
+       for prefers-reduced-motion; only armed while the hero is on screen. -->
+  <script>
+    (function () {
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce) return;
+
+      const STEP = 3;            // sample every STEP px of the PNG (smaller = denser text)
+      const ALPHA_MIN = 130;     // pixel opacity threshold to become a particle
+      const RADIUS = 95;         // brush radius (screen px): particles within this of the cursor dissolve
+      const cv = document.createElement('canvas');
+      cv.id = 'subheadFX';
+      cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none;';
+      document.body.appendChild(cv);
+      const ctx = cv.getContext('2d');
+
+      let dpr = 1, W = 0, H = 0;
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth; H = window.innerHeight;
+        cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      // ── Sample the PNG into normalised particles (nx,ny in 0..1 of the image) ──
+      let samples = null, imgW = 1, imgH = 1;
+      const img = new Image();
+      img.src = 'stripey-subhead.png';
+      img.onload = function () {
+        imgW = img.naturalWidth; imgH = img.naturalHeight;
+        const oc = document.createElement('canvas');
+        oc.width = imgW; oc.height = imgH;
+        const octx = oc.getContext('2d');
+        octx.drawImage(img, 0, 0);
+        const data = octx.getImageData(0, 0, imgW, imgH).data;
+        const arr = [];
+        for (let y = 0; y < imgH; y += STEP) {
+          for (let x = 0; x < imgW; x += STEP) {
+            const a = data[(y * imgW + x) * 4 + 3];
+            if (a < ALPHA_MIN) continue;
+            const i = (y * imgW + x) * 4;
+            const ang = Math.random() * Math.PI * 2;   // scatter direction (gentle, any way)
+            const mag = 6 + Math.random() * 20;
+            arr.push({
+              nx: x / imgW, ny: y / imgH,
+              r: data[i], g: data[i + 1], b: data[i + 2], a: a / 255,
+              sx: Math.cos(ang) * mag, sy: Math.sin(ang) * mag - 6,   // slight upward bias
+              ph: Math.random() * Math.PI * 2, sp: 0.6 + Math.random() * 0.8,
+              wob: 1.5 + Math.random() * 3, e: 0
+            });
+          }
+        }
+        samples = arr;
+      };
+
+      const smooth = t => t * t * (3 - 2 * t);
+      let running = false, active = false, t0 = 0, cx = 0, cy = 0;
+
+      function box() {
+        const sh = window.__subhead__;
+        if (!sh || (window.__heroT__ || 0) > 0.6) return null;   // only while hero is on screen
+        const b = sh.getBounds();
+        if (b.width < 2 || b.height < 2) return null;
+        return b;
+      }
+      function near(b, x, y) {   // cursor within the box grown by the brush radius
+        return x >= b.x - RADIUS && x <= b.x + b.width + RADIUS &&
+               y >= b.y - RADIUS && y <= b.y + b.height + RADIUS;
+      }
+
+      window.addEventListener('mousemove', function (e) {
+        if (!samples) return;
+        cx = e.clientX; cy = e.clientY;
+        const b = box();
+        active = !!b && near(b, cx, cy);
+        if (active && !running) { running = true; window.__subheadHide__ = 1; requestAnimationFrame(loop); }
+      }, { passive: true });
+      window.addEventListener('mouseout', function (e) { if (!e.relatedTarget) active = false; });
+      window.addEventListener('blur', function () { active = false; });
+
+      let last = 0;
+      function loop(now) {
+        if (!last) last = now;
+        const dt = Math.min((now - last) / 1000, 0.05); last = now;
+        const b = box();
+        if (!b) active = false;
+
+        ctx.clearRect(0, 0, W, H);
+        let maxE = 0;
+        if (b) {
+          const px = b.width / imgW, sz = Math.max(1.1, px * STEP * 1.05);
+          const ease = Math.min(1, dt * 8);
+          t0 += dt;
+          // Sync opacity with the fading hero (matches shSpr.alpha = fade * ...).
+          const heroFade = Math.max(0, Math.min(1, 1 - (window.__heroT__ || 0) * 1.4));
+
+          // 1) Crisp PNG for the whole line — identical to the sprite, so there's no visible
+          //    "switch to a particle state"; the text stays smooth everywhere.
+          ctx.imageSmoothingEnabled = true;
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = heroFade;
+          ctx.drawImage(img, b.x, b.y, b.width, b.height);
+
+          // 2) Update every particle's energy; erase the dissolving cells from the crisp
+          //    layer (destination-out) so the text crumbles away only under the ~RADIUS brush.
+          ctx.globalCompositeOperation = 'destination-out';
+          for (let k = 0; k < samples.length; k++) {
+            const p = samples[k];
+            const hx = b.x + p.nx * b.width, hy = b.y + p.ny * b.height;
+            let tgt = 0;
+            if (active) {
+              const d = Math.hypot(hx - cx, hy - cy);
+              if (d < RADIUS) tgt = smooth(1 - d / RADIUS);
+            }
+            p.e += (tgt - p.e) * ease;
+            if (p.e > maxE) maxE = p.e;
+            if (p.e > 0.01) { ctx.globalAlpha = p.e; ctx.fillRect(hx, hy, sz, sz); }
+          }
+
+          // 3) Draw the drifting particles as soft round dots on top of the crisp text.
+          ctx.globalCompositeOperation = 'source-over';
+          const dot = sz * 0.6;
+          for (let k = 0; k < samples.length; k++) {
+            const p = samples[k];
+            const e = p.e;
+            if (e <= 0.01) continue;
+            const hx = b.x + p.nx * b.width, hy = b.y + p.ny * b.height;
+            const wob = Math.sin(t0 * p.sp * 2 + p.ph) * p.wob * e;
+            const x = hx + (p.sx + wob) * e;
+            const y = hy + (p.sy - wob * 0.5) * e;
+            ctx.globalAlpha = p.a * (1 - e * 0.4) * heroFade;
+            ctx.fillStyle = 'rgb(' + p.r + ',' + p.g + ',' + p.b + ')';
+            ctx.beginPath();
+            ctx.arc(x + sz / 2, y + sz / 2, dot, 0, 6.2832);
+            ctx.fill();
+          }
+
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        if (!active && maxE < 0.004) {   // fully settled → hand the crisp sprite back
+          running = false; last = 0;
+          window.__subheadHide__ = 0;
+          ctx.clearRect(0, 0, W, H);
+          return;
+        }
+        requestAnimationFrame(loop);
+      }
+    })();
+  </script>
+
+  <!-- Launch Party RSVP: guest stepper + Formspree submit. (Open/close is wired
+       in the scroll-controller IIFE above.) -->
+  <script>
+    (function () {
+      const form = document.getElementById('rsvpForm');
+      if (!form) return;
+      const guestVal = document.getElementById('lpGuestVal');
+      const guestField = document.getElementById('lpGuestsField');
+      const btn = form.querySelector('.lp-btn');
+      const msg = document.getElementById('lpFormMsg');
+      const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xvzjlvnj';
+
+      let guests = 1;
+      const render = () => { guestVal.textContent = guests; guestField.value = guests; };
+      document.getElementById('lpGuestPlus').addEventListener('click', () => { guests = Math.min(20, guests + 1); render(); });
+      document.getElementById('lpGuestMinus').addEventListener('click', () => { guests = Math.max(1, guests - 1); render(); });
+
+      // Return the panel to its original state so a fresh invite can be sent next open.
+      function resetForm() {
+        form.classList.remove('sent');
+        btn.disabled = false;
+        form.reset();
+        guests = 1; render();
+        msg.textContent = '';
+      }
+      const lpBtn = document.getElementById('launchPartyBtn');
+      if (lpBtn) lpBtn.addEventListener('click', resetForm);
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!form.checkValidity()) { form.reportValidity(); return; }
+        btn.disabled = true;
+        msg.textContent = 'Sending…'; msg.style.color = 'var(--ink)';
+        try {
+          const res = await fetch(FORMSPREE_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            body: new FormData(form),
+          });
+          if (res.ok) {
+            form.classList.add('sent');   // swap card content → "Request sent"
+            btn.disabled = true;          // fade + disable the button (keeps its label)
+            msg.textContent = '';
+          } else {
+            msg.textContent = 'Something went wrong. Please try again.'; msg.style.color = '#b23b2e';
+            btn.disabled = false;
+          }
+        } catch (err) {
+          msg.textContent = 'Network error. Please try again.'; msg.style.color = '#b23b2e';
+          btn.disabled = false;
+        }
+      });
+    })();
+  </script>
+
+  <!-- Book-flip scroll scrub: preload the WebP frames and draw the one matching the
+       section's scroll position onto a transparent canvas (Apple-style sequence). -->
+  <script>
+  (function () {
+    const sec = document.querySelector('.scene--bookflip');
+    const canvas = document.getElementById('bookFlipCanvas');
+    if (!sec || !canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    const FRAMES = 136;
+    const pad = n => String(n).padStart(5, '0');
+    const url = i => 'book-flip-hires-web/frame_' + pad(i) + '.webp';   // 1 … 136 (1920px hi-res)
+    const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+
+    // Per-frame alpha bounding box (mobile only) — the book sits off-centre inside the
+    // wide 1920×1080 frame, so on mobile we centre + scale on the book's actual content
+    // rather than the frame. Computed once per frame at load via a small offscreen scan.
+    const bboxes = new Array(FRAMES + 1);
+    let maxContentW = 1000;   // widest book content (natural px); grows as frames scan in
+    const bcv = document.createElement('canvas');
+    const bctx = bcv.getContext('2d', { willReadFrequently: true });
+    function computeBbox(im, i) {
+      const TW = 160, TH = Math.max(1, Math.round(160 * im.naturalHeight / im.naturalWidth));
+      bcv.width = TW; bcv.height = TH;
+      bctx.clearRect(0, 0, TW, TH);
+      bctx.drawImage(im, 0, 0, TW, TH);
+      let d;
+      try { d = bctx.getImageData(0, 0, TW, TH).data; } catch (e) { return; }
+      let minX = TW, maxX = 0, minY = TH, maxY = 0, any = false;
+      for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
+        if (d[(y * TW + x) * 4 + 3] > 20) { any = true;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y; }
+      }
+      const sx = im.naturalWidth / TW, sy = im.naturalHeight / TH;
+      bboxes[i] = any
+        ? { minX: minX * sx, maxX: (maxX + 1) * sx, minY: minY * sy, maxY: (maxY + 1) * sy }
+        : { minX: 0, maxX: im.naturalWidth, minY: 0, maxY: im.naturalHeight };
+      maxContentW = Math.max(maxContentW, bboxes[i].maxX - bboxes[i].minX);
+    }
+
+    // Preload every frame.
+    const imgs = new Array(FRAMES + 1);
+    for (let i = 1; i <= FRAMES; i++) {
+      const im = new Image();
+      im.decoding = 'async';
+      im.onload = () => { if (W <= 768) computeBbox(im, i); draw();
+                          if (window.__loader__) window.__loader__.tick(); };   // scan on mobile, then draw
+      im.onerror = () => { if (window.__loader__) window.__loader__.tick(); };  // missing frame can't stall the loader
+      im.src = url(i);
+      imgs[i] = im;
+    }
+
+    let dpr = 1, W = 0, H = 0;
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = canvas.clientWidth; H = canvas.clientHeight;
+      canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    // The book rises in from below while it flips, then slides to the middle-left
+    // and settles there as the pre-order copy fades in on the right.
+    const textEl = document.getElementById('bookFlipText');
+    const RISE = 0.28;          // book starts this far below centre (fraction of vh)
+    const RISE_END = 0.60;      // …and reaches centre by this scroll fraction
+    const FLIP_END = 0.85;      // page flip (frames 1→159) completes by here
+    const SHIFT_START = 0.45;   // book flips roughly in place first, then slides left…
+    const SHIFT_END = 0.85;     // …arriving middle-left as the flip finishes (animation fills the section)
+    const SHIFT_X = 0.30;       // leftward shift (fraction of viewport width)
+    const NUDGE = 50;           // pull the final resting spot this many px back to the right
+    const TEXT_START = 0.55;    // pre-order copy fades in a little after the book starts sliding left…
+    const TEXT_END = 0.81;      // …finishing a touch before the book settles
+    const easeOut = t => 1 - Math.pow(1 - t, 3);   // decelerate into the resting spot
+
+    // Mobile: the book flips centred, then lifts up + fades out as the full-width
+    // pre-order copy fades in (two stacked "screens" rather than book-left/text-right).
+    const M_FLIP_END = 0.45;    // flip completes
+    const M_LIFT_START = 0.50;  // book lifts up & fades away…
+    const M_LIFT_END = 0.72;
+    const M_TEXT_START = 0.56;  // …as the copy fades in
+    const M_TEXT_END = 0.80;
+
+    function draw() {
+      const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+      const total = sec.offsetHeight - vh;
+      const p = total > 0 ? clampN(-sec.getBoundingClientRect().top / total, 0, 1) : 0;
+
+      // ── Mobile branch: centred flip → lift-out, full-width copy fades in ──
+      if (W <= 768) {
+        const flipP = clampN(p / M_FLIP_END, 0, 1);
+        const idx = 1 + Math.round(flipP * (FRAMES - 1));
+        const im = imgs[idx];
+        const bb = bboxes[idx];
+        if (im && im.complete && im.naturalWidth && bb) {
+          ctx.clearRect(0, 0, W, H);
+          // One consistent scale so the closed cover (final frame) fills M_COVER_FILL of the
+          // width; the wider open-spread frames then bleed past the edges. Every frame is
+          // centred on the book's own content box (not the off-centre frame).
+          const M_COVER_FILL = 0.88;
+          const ref = bboxes[FRAMES] ? (bboxes[FRAMES].maxX - bboxes[FRAMES].minX) : (maxContentW * 0.57);
+          const s = (M_COVER_FILL * W) / ref;
+          const dw = im.naturalWidth * s, dh = im.naturalHeight * s;
+          const cx = (bb.minX + bb.maxX) / 2, cy = (bb.minY + bb.maxY) / 2;   // book centre (natural px)
+          const rise = (1 - clampN(p / (M_FLIP_END * 0.95), 0, 1)) * RISE;    // rises in from below
+          const lift = easeOut(clampN((p - M_LIFT_START) / (M_LIFT_END - M_LIFT_START), 0, 1));
+          ctx.globalAlpha = 1 - lift;
+          ctx.drawImage(im, W / 2 - cx * s, H / 2 - cy * s + rise * H - lift * H * 0.5, dw, dh);
+          ctx.globalAlpha = 1;
+        }
+        if (textEl) {
+          const t = clampN((p - M_TEXT_START) / (M_TEXT_END - M_TEXT_START), 0, 1);
+          textEl.style.opacity = t.toFixed(3);
+          textEl.style.transform = 'translate(-50%, -50%) translateY(' + ((1 - t) * 24).toFixed(1) + 'px)';
+          textEl.style.pointerEvents = t > 0.9 ? 'auto' : 'none';
+        }
+        return;
+      }
+
+      const flipP = clampN(p / FLIP_END, 0, 1);
+      const idx = 1 + Math.round(flipP * (FRAMES - 1));
+      const im = imgs[idx];
+      if (im && im.complete && im.naturalWidth) {
+        ctx.clearRect(0, 0, W, H);                                     // transparent → teal bg shows through
+        const s = Math.min(W / im.naturalWidth, H / im.naturalHeight); // object-fit: contain
+        const dw = im.naturalWidth * s, dh = im.naturalHeight * s;
+        const rise = (1 - clampN(p / RISE_END, 0, 1)) * RISE;          // RISE·H → 0 (rises to centre)
+        const se = easeOut(clampN((p - SHIFT_START) / (SHIFT_END - SHIFT_START), 0, 1));   // eased slide
+        const shiftPx = se * (SHIFT_X * W - NUDGE);   // leftward px; final spot pulled NUDGE px right
+        ctx.drawImage(im, (W - dw) / 2 - shiftPx, (H - dh) / 2 + rise * H, dw, dh);
+      }
+
+      if (textEl) {
+        const t = clampN((p - TEXT_START) / (TEXT_END - TEXT_START), 0, 1);
+        textEl.style.opacity = t.toFixed(3);
+        textEl.style.transform = 'translateY(-50%) translateX(' + ((1 - t) * 28).toFixed(1) + 'px)';
+        textEl.style.pointerEvents = t > 0.9 ? 'auto' : 'none';
+      }
+    }
+
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) { ticking = true; requestAnimationFrame(() => { draw(); ticking = false; }); }
+    }, { passive: true });
+    window.addEventListener('resize', resize);
+    resize();
+  })();
+  </script>
+
+  <!-- Lenis smooth scroll. Native scroll is the fallback if Lenis is
+       unavailable or reduced-motion is preferred. -->
+  <script>
+    (function () {
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduce || typeof Lenis === 'undefined') return;   // → native scroll fallback
+
+      const lenis = new Lenis({
+        duration: 1.15,
+        easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+        smoothWheel: true,
+        touchMultiplier: 1.5,
+      });
+      window.__lenis__ = lenis;
+      function raf(time) { lenis.raf(time); requestAnimationFrame(raf); }
+      requestAnimationFrame(raf);
+    })();
+  </script>
+</body>
+</html>
