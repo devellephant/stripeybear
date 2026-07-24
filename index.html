@@ -1316,16 +1316,43 @@
       shSpr.height = shSpr.texture.height * (shW / shSpr.texture.width);
       shSpr.anchor.set(0.5, 0);
       shSpr.x = W / 2;
-      shSpr.y = isMobile ? visH * 0.56 - 124 : H * 0.52;   // below the (larger) hero lettering
+      // Subhead sits below the hero lettering. The title is sized by viewport WIDTH (64vw) but
+      // the subhead's vh-based formula rides UP on short viewports (e.g. in-app browsers like
+      // LinkedIn with persistent chrome), overlapping the title. Clamp it below the title's actual
+      // rendered bottom; `clampEngaged` flags that we're on such a short viewport.
+      let shY = visH * 0.56 - 124;
+      let clampEngaged = false;
+      if (isMobile) {
+        const htEl = document.getElementById('heroType');
+        if (htEl) {
+          const minY = htEl.getBoundingClientRect().bottom + 16;
+          if (minY > shY) { shY = minY; clampEngaged = true; }
+        }
+      }
+      shSpr.y = isMobile ? shY : H * 0.52;   // below the (larger) hero lettering
       shBaseY = shSpr.y; shBaseScale = shSpr.scale.x;
 
       // Bear — all PNGs share the same canvas; anchor bottom-center (bigger on mobile)
       const bearW = isMobile ? Math.min(W * 1.008, 612) : Math.min(W * 0.40, 560);   /* mobile bear −10% to give the CTA more room */
       const sc    = bearW / bodySpr.texture.width;
       bearScale = sc;
+      const bearH = bodySpr.texture.height * sc;
 
       bearBaseX = W / 2;
       bearBaseY = isMobile ? visH * 1.0 : H * 1.06; // mobile: raise the bear so head+shoulders show
+
+      // Short-viewport cascade: when the subhead had to be clamped (in-app browsers), drop the
+      // launch pill below the subhead and push the bear down so the stack never overlaps. No-op on
+      // normal phones — the pill keeps its CSS 51vh and the bear its usual spot.
+      const pillEl = document.getElementById('launchPartyBtn');
+      if (isMobile && clampEngaged) {
+        const subheadBottom = shSpr.y + shSpr.height;
+        if (pillEl) pillEl.style.top = Math.round(subheadBottom + 26) + 'px';
+        const pillBottom = subheadBottom + 26 + (pillEl ? pillEl.offsetHeight : 52);
+        bearBaseY = Math.max(bearBaseY, pillBottom + 24 + bearH);
+      } else if (isMobile && pillEl) {
+        pillEl.style.top = '';   // restore CSS (51vh) on normal-height viewports
+      }
 
       for (const sp of [bodySpr, maneSpr, headSpr, eyesSpr]) {
         sp.width  = sp.texture.width  * sc;
