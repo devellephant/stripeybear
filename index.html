@@ -1320,7 +1320,7 @@
       shBaseY = shSpr.y; shBaseScale = shSpr.scale.x;
 
       // Bear — all PNGs share the same canvas; anchor bottom-center (bigger on mobile)
-      const bearW = isMobile ? Math.min(W * 1.12, 680) : Math.min(W * 0.40, 560);
+      const bearW = isMobile ? Math.min(W * 1.008, 612) : Math.min(W * 0.40, 560);   /* mobile bear −10% to give the CTA more room */
       const sc    = bearW / bodySpr.texture.width;
       bearScale = sc;
 
