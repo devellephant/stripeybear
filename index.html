@@ -596,8 +596,9 @@
       /* copyright pinned bottom-right, level with the last address line */
       .footer__m-copy {
         position: absolute; right: 6vw; bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
-        white-space: nowrap;
+        white-space: nowrap; text-align: right;
       }
+      .footer__m-inc { color: rgba(246, 236, 227, 0.9); }   /* brighter cream, matches desktop .hl */
 
       /* ── Launch overlay — portrait full-screen notepad (dedicated mobile layers) ── */
       .lp-art {
@@ -846,7 +847,7 @@
       <!-- Mobile-only: compact dark footer bar (publisher left, copyright right) -->
       <div class="footer__m">
         <div class="footer__m-addr">Nightingale Books, Pegasus Publishers<br>Sheraton House Castle Park<br>Cambridge England</div>
-        <div class="footer__m-copy">© Copyright 2026</div>
+        <div class="footer__m-copy"><span class="footer__m-inc">Stripey Bear Inc.</span><br>© Copyright 2026</div>
       </div>
     </footer>
   </main>
